@@ -87,6 +87,11 @@ export class HeatmapController {
     totalStart: number
   } | null = null
   private debounceHandle: ReturnType<typeof setTimeout> | null = null
+  /** Last visibility mask, so it can be re-applied after DMV re-styles. */
+  private appliedFilter: {
+    annotationGroupUID: string
+    allowed: Uint8Array
+  } | null = null
   private status: HeatmapStatus = {
     isComputing: false,
     grid: null,
@@ -200,6 +205,25 @@ export class HeatmapController {
   }
 
   /**
+   * Re-apply the measurement filter to the annotations.
+   *
+   * Showing, hiding or re-styling an annotation group makes DMV replace the
+   * styles of its layers, which discards the filter's style wrapper and brings
+   * every annotation back while the heatmap still shows the filtered subset.
+   * `SlideViewer` calls this after any such operation.
+   */
+  reapplyAnnotationFilter(): void {
+    if (this.appliedFilter === null) {
+      return
+    }
+    setAnnotationVisibilityFilter({
+      viewer: this.viewer,
+      annotationGroupUID: this.appliedFilter.annotationGroupUID,
+      allowed: this.appliedFilter.allowed,
+    })
+  }
+
+  /**
    * Hide the annotations excluded by the measurement filter on the slide
    * itself, so the filter does what its label says rather than only reshaping
    * the heatmap.
@@ -215,6 +239,7 @@ export class HeatmapController {
     }
     const range = settings.filterRange
     if (range === undefined || values === undefined) {
+      this.appliedFilter = null
       setAnnotationVisibilityFilter({
         viewer: this.viewer,
         annotationGroupUID: uid,
@@ -238,6 +263,7 @@ export class HeatmapController {
         allowed[positions.annotationIndices[i]] = 1
       }
     }
+    this.appliedFilter = { annotationGroupUID: uid, allowed }
     setAnnotationVisibilityFilter({
       viewer: this.viewer,
       annotationGroupUID: uid,

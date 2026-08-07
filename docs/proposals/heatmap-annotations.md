@@ -286,7 +286,10 @@ range:
   bubbles thin out rather than disappear.
 
   This is deliberately *not* `setAnnotationGroupStyle(uid, { limitValues })`; see
-  the dead end below.
+  the dead end below. DMV re-styles those layers whenever the group is shown,
+  hidden or restyled, which drops the wrapper, so `SlideViewer` calls
+  `HeatmapController.reapplyAnnotationFilter()` after each of those operations
+  (see risk 9).
 
 ---
 
@@ -309,7 +312,7 @@ Modified:
 
 | File | Change |
 | --- | --- |
-| `src/components/SlideViewer.tsx` | `heatmapController` field; four state fields; `getHeatmapController()`, `handleHeatmapSettingsChange()`, `refreshHeatmapMeasurementRange()`, `updateHeatmapHoverReadout()`; `getHeatmapMenu()`; dispose in `componentWillUnmount` **and** in the `componentDidUpdate` slide-switch branch |
+| `src/components/SlideViewer.tsx` | `heatmapController` field; four state fields; `getHeatmapController()`, `handleHeatmapSettingsChange()`, `refreshHeatmapMeasurementRange()`, `updateHeatmapHoverReadout()`; `reapplyAnnotationFilter()` calls at the end of `handleAnnotationGroupVisibilityChange` and `handleAnnotationGroupStyleChange`; `getHeatmapMenu()`; dispose in `componentWillUnmount` **and** in the `componentDidUpdate` slide-switch branch |
 | `src/components/SlideViewer/types.ts` | four new `SlideViewerState` fields |
 | `src/components/SlideViewer/SlideViewerSidebar.tsx` | `annotationHeatmapMenu` prop, rendered after `annotationGroupMenu` |
 | `types/dicom-microscopy-viewer/index.d.ts` | declare `getMap()`, `getAffine()`, `utils.applyTransform`/`applyInverseTransform` |
@@ -371,6 +374,8 @@ export class HeatmapController {
   sampleAt(coordinate: number[]): number | null
   listMeasurementsOf(uid: string): MeasurementDescriptor[]
   getMeasurementRange(uid: string, measurement: CodedConceptLike): Promise<[number, number] | null>
+  /** Re-install the visibility filter after DMV has re-styled the group. */
+  reapplyAnnotationFilter(): void
 }
 
 /**
@@ -501,14 +506,24 @@ grid in the legend readout.
 8. **Log scale with non-positive values.** `sum`/`mean` of a signed measurement
    can be ≤ 0; the prototype's log transform guards with a floor, but the
    correct behaviour (clamp? hide? symlog?) is unresolved.
-9. **The visibility filter overwrites DMV's layer styles.** It stores the
-   original in a `WeakMap` and puts it back when the filter clears, but if DMV
-   itself calls `setStyle` while a filter is active (e.g. the user changes the
-   annotation group's colour or opacity) the wrapper is dropped and the
-   annotations reappear. The production version should re-apply the filter after
-   any `setAnnotationGroupStyle` call, or drive both from one place.
-10. **Restoring the full range is not exactly "no filter".** Dragging the slider
-   back to its bounds leaves a `filterRange` set, and floating-point/step
-   rounding then excludes a slice of annotations at the extremes (observed:
-   631,225 of 898,090 at nominal full range). The production UI should treat a
-   range equal to the measurement's bounds as *unset* rather than as a filter.
+9. **The visibility filter overwrites DMV's layer styles, and DMV undoes it.**
+   Any DMV call that re-styles or recreates the group's layers discards the
+   style wrapper, bringing every annotation back while the heatmap still shows
+   the filtered subset — the panel and the slide then disagree with no visible
+   cue. Both triggers were reproduced: changing the group's opacity (1,148 →
+   17,270 outline px, legend unchanged) and toggling the group's visibility off
+   and on (1,148 → 20,084). Mitigated rather than solved:
+   `HeatmapController.reapplyAnnotationFilter()` re-installs the wrapper, and
+   `SlideViewer` calls it at the end of `handleAnnotationGroupVisibilityChange`
+   and `handleAnnotationGroupStyleChange`; the wrapper carries a flag so
+   re-applying cannot nest wrappers or lose the base style. This is a list of
+   call sites that must stay in sync — the production design should instead own
+   annotation visibility and the heatmap from one place so they cannot diverge,
+   or push a `limitValues` implementation into DMV's annotation-group path.
+10. **Restoring the full range is not exactly "no filter".** Clearing the filter
+   leaves a `filterRange` set rather than unsetting it. Keyboard-stepping the
+   handles to their bounds lands exactly on min/max and does restore all
+   898,090; *dragging* them there does not (observed 631,225 of 898,090),
+   because the pixel→value quantisation of a drag lands just inside the bounds.
+   The production UI should treat a range equal to the measurement's bounds as
+   *unset*.

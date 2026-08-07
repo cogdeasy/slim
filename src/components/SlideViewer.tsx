@@ -2969,6 +2969,7 @@ class SlideViewer extends React.Component<SlideViewerProps, SlideViewerState> {
         return { visibleAnnotationGroupUIDs }
       })
     }
+    this.heatmapController?.reapplyAnnotationFilter()
   }
 
   /**
@@ -2999,6 +3000,7 @@ class SlideViewer extends React.Component<SlideViewerProps, SlideViewerState> {
       )
       throw error
     }
+    this.heatmapController?.reapplyAnnotationFilter()
   }
 
   /**

@@ -86,6 +86,16 @@ function collectSources(viewer: VolumeViewer): OlVectorSourceLike[] {
  */
 const baseStyles = new WeakMap<object, unknown>()
 
+/** Marks a style function as one the filter installed. */
+const WRAPPER_FLAG = '__slimHeatmapFilterWrapper'
+
+function isWrapper(style: unknown): boolean {
+  return (
+    typeof style === 'function' &&
+    (style as unknown as Record<string, unknown>)[WRAPPER_FLAG] === true
+  )
+}
+
 /** Layers of the map whose (possibly clustered) source holds the group. */
 function findAnnotationGroupLayers(
   viewer: VolumeViewer,
@@ -165,23 +175,33 @@ export function setAnnotationVisibilityFilter({
     ) {
       continue
     }
-    if (!baseStyles.has(layer)) {
-      baseStyles.set(layer, layer.getStyle())
+    /*
+     * DMV replaces the style whenever the group is shown, hidden or restyled,
+     * so the current style is only the base if it is not already a wrapper —
+     * otherwise re-applying would nest wrappers and never restore.
+     */
+    const current = layer.getStyle()
+    if (!isWrapper(current)) {
+      baseStyles.set(layer, current)
     }
     const base = baseStyles.get(layer)
     if (allowed === null) {
-      layer.setStyle(base)
+      if (isWrapper(current)) {
+        layer.setStyle(base)
+      }
       baseStyles.delete(layer)
       continue
     }
-    layer.setStyle((feature: OlFeatureLike, resolution: number) => {
+    const wrapper = (feature: OlFeatureLike, resolution: number): unknown => {
       if (!isAllowed(feature)) {
         return undefined
       }
       return typeof base === 'function'
         ? (base as OlStyleFunctionLike)(feature, resolution)
         : base
-    })
+    }
+    ;(wrapper as unknown as Record<string, unknown>)[WRAPPER_FLAG] = true
+    layer.setStyle(wrapper)
   }
 }
 
