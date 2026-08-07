@@ -229,8 +229,8 @@ function findValueRange({
  * Bins beyond the edge are mirrored back into the grid, which is the one
  * treatment of the boundary that both leaves a uniform grid uniform and gives
  * back the total it was handed. Repeating the edge value instead - the obvious
- * spelling, `clamp` - does the first but not the second, and lets an
- * annotation at the rim of a slide count for half again as much as the same
+ * spelling, clamping the sample index - does the first but not the second,
+ * and lets an annotation at the rim of a slide count for more than the same
  * annotation in the middle; padding with zeros does neither, and draws a dark
  * border around every slide.
  *
@@ -421,25 +421,6 @@ function buildGaussianKernel(sigma: number): Float32Array {
     kernel[i] /= total
   }
   return kernel
-}
-
-/**
- * Restrict a value to an inclusive range.
- *
- * @param value - Value to clamp
- * @param low - Lower bound
- * @param high - Upper bound
- *
- * @returns The clamped value
- */
-function clamp(value: number, low: number, high: number): number {
-  if (value < low) {
-    return low
-  }
-  if (value > high) {
-    return high
-  }
-  return value
 }
 
 /**
