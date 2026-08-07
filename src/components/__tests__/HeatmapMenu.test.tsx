@@ -35,7 +35,7 @@ const MEASUREMENTS: MeasurementDescriptor[] = [
 
 const GRID: HeatmapGrid = {
   values: Float32Array.from([1, 4]),
-  counts: Uint32Array.from([1, 2]),
+  coverage: Uint32Array.from([1, 2]),
   width: 2,
   height: 1,
   binSizeUnits: 10,

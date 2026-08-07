@@ -21,6 +21,6 @@ context.onmessage = (event: MessageEvent<BinningRequest>): void => {
   const response = computeHeatmapGrid(event.data)
   context.postMessage(response, [
     response.values.buffer,
-    response.counts.buffer,
+    response.coverage.buffer,
   ])
 }

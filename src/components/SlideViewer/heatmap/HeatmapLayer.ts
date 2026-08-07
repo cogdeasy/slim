@@ -179,7 +179,7 @@ export class HeatmapLayer {
     const image = context.createImageData(grid.width, grid.height)
     const data = image.data
     for (let bin = 0; bin < grid.values.length; bin++) {
-      if (grid.counts[bin] === 0) {
+      if (grid.coverage[bin] === 0) {
         continue
       }
       const entry =

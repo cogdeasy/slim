@@ -445,7 +445,7 @@ describe('HeatmapController', () => {
       data: {
         requestId: mockWorker.requests[0].requestId,
         values: Float32Array.from([15]),
-        counts: Uint32Array.from([2]),
+        coverage: Uint32Array.from([2]),
         width: 1,
         height: 1,
         binSizeUnits: 1000,
@@ -494,7 +494,7 @@ describe('HeatmapController', () => {
       data: {
         requestId: inFlight,
         values: Float32Array.from([15]),
-        counts: Uint32Array.from([2]),
+        coverage: Uint32Array.from([2]),
         width: 1,
         height: 1,
         binSizeUnits: 1000,
@@ -587,7 +587,7 @@ describe('HeatmapController', () => {
       data: {
         requestId: mockWorker.requests[0].requestId,
         values: Float32Array.from([15]),
-        counts: Uint32Array.from([2]),
+        coverage: Uint32Array.from([2]),
         width: 1,
         height: 1,
         binSizeUnits: 1000,
@@ -642,7 +642,7 @@ describe('HeatmapController', () => {
       data: {
         requestId: mockWorker.requests[0].requestId,
         values: Float32Array.from([15]),
-        counts: Uint32Array.from([2]),
+        coverage: Uint32Array.from([2]),
         width: 1,
         height: 1,
         binSizeUnits: 1000,
@@ -667,7 +667,7 @@ describe('HeatmapController', () => {
       data: {
         requestId: abandoned,
         values: Float32Array.from([99, 99, 99, 99]),
-        counts: Uint32Array.from([1, 1, 1, 1]),
+        coverage: Uint32Array.from([1, 1, 1, 1]),
         width: 2,
         height: 2,
         binSizeUnits: 500,
@@ -706,7 +706,7 @@ describe('HeatmapController', () => {
       data: {
         requestId: mockWorker.requests[0].requestId,
         values: Float32Array.from([15]),
-        counts: Uint32Array.from([2]),
+        coverage: Uint32Array.from([2]),
         width: 1,
         height: 1,
         binSizeUnits: 1000,
@@ -924,7 +924,7 @@ describe('HeatmapController', () => {
       data: {
         requestId: mockWorker.requests[0].requestId,
         values: Float32Array.from([10]),
-        counts: Uint32Array.from([1]),
+        coverage: Uint32Array.from([1]),
         width: 1,
         height: 1,
         binSizeUnits: 1000,

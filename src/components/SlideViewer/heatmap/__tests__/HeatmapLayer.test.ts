@@ -102,7 +102,7 @@ const mockCanvasFunctions: Array<
 
 const GRID: HeatmapGrid = {
   values: Float32Array.from([1, 2, 3, 4]),
-  counts: Uint32Array.from([1, 1, 1, 1]),
+  coverage: Uint32Array.from([1, 1, 1, 1]),
   width: 2,
   height: 2,
   binSizeUnits: 1,

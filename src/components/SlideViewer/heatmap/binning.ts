@@ -177,7 +177,7 @@ export function computeHeatmapGrid(request: BinningRequest): BinningResponse {
   return {
     requestId: request.requestId,
     values: aggregated,
-    counts: coverage,
+    coverage,
     width,
     height,
     binSizeUnits,
@@ -189,11 +189,11 @@ export function computeHeatmapGrid(request: BinningRequest): BinningResponse {
 }
 
 /**
- * Range of the values of the bins that hold at least one annotation.
+ * Range of the values of the bins the heatmap speaks for.
  *
  * @param options - Options
  * @param options.values - Aggregated value per bin
- * @param options.coverage - Number of annotations per bin
+ * @param options.coverage - Which bins the heatmap speaks for
  *
  * @returns Minimum and maximum, both 0 when no bin is populated
  */
@@ -438,5 +438,5 @@ export function sampleGrid(
     return null
   }
   const bin = row * grid.width + column
-  return grid.counts[bin] === 0 ? null : grid.values[bin]
+  return grid.coverage[bin] === 0 ? null : grid.values[bin]
 }

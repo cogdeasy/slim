@@ -751,7 +751,7 @@ export class HeatmapController {
     this.pendingContext = null
     const grid: HeatmapGrid = {
       values: response.values,
-      counts: response.counts,
+      coverage: response.coverage,
       width: response.width,
       height: response.height,
       /*

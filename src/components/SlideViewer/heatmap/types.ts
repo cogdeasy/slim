@@ -107,8 +107,14 @@ export interface AnnotationPositions {
 export interface HeatmapGrid {
   /** Aggregated value per bin, row-major, length `width * height`. */
   values: Float32Array
-  /** Number of annotations per bin, row-major. Bins with 0 are transparent. */
-  counts: Uint32Array
+  /**
+   * Which bins the heatmap speaks for, row-major; bins with 0 are transparent.
+   *
+   * The number of annotations per bin where nothing is smoothed, but smoothing
+   * widens it to the bins the blur reaches, so it is a footprint rather than a
+   * count of anything.
+   */
+  coverage: Uint32Array
   width: number
   height: number
   /** Size of one bin in OpenLayers projection units. */
@@ -137,7 +143,7 @@ export interface BinningRequest {
 export interface BinningResponse {
   requestId: number
   values: Float32Array
-  counts: Uint32Array
+  coverage: Uint32Array
   width: number
   height: number
   binSizeUnits: number
