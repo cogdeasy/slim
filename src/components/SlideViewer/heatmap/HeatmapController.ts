@@ -664,6 +664,15 @@ export class HeatmapController {
       sameBinningInputs(this.lastBinnedInputs, inputs)
     ) {
       /*
+       * A request still in the worker was posted for inputs the user has since
+       * moved away from - back to the ones on screen, which is why this
+       * recompute has nothing to do - so its answer would paint a grid the
+       * panel no longer describes.
+       */
+      this.pendingRequestId = null
+      this.pendingRequest = null
+      this.pendingContext = null
+      /*
        * Republished rather than left as the recompute cleared it: the grid on
        * screen is the one this recompute would have produced, so whatever is
        * missing from it is still missing, and a partial heatmap that stops

@@ -618,6 +618,70 @@ describe('HeatmapController', () => {
     controller.dispose()
   })
 
+  it('drops a request the user has changed their mind back out of', async () => {
+    /*
+     * Moving a slider away and back again while the binner is still working
+     * leaves an answer in flight for a bin size the panel no longer describes,
+     * and the recompute that finds the grid on screen already correct is the
+     * one that has to say so.
+     */
+    const { viewer, setFeatures } = buildViewer()
+    const controller = new HeatmapController({
+      viewer,
+      client: {
+        retrieveBulkData: async () => [Float32Array.from([10, 20]).buffer],
+      } as unknown as DicomWebManager,
+      settings: SETTINGS,
+      onStatusChange: () => {},
+    })
+
+    setFeatures([buildFeature('a', 0), buildFeature('a', 1)])
+    controller.update({ ...SETTINGS, annotationGroupUID: 'a' }, [])
+    await flush()
+    mockWorker.onmessage?.({
+      data: {
+        requestId: mockWorker.requests[0].requestId,
+        values: Float32Array.from([15]),
+        counts: Uint32Array.from([2]),
+        width: 1,
+        height: 1,
+        binSizeUnits: 1000,
+        minValue: 15,
+        maxValue: 15,
+        includedCount: 2,
+        durationMs: 1,
+      },
+    } as MessageEvent<unknown>)
+
+    controller.update(
+      { ...SETTINGS, annotationGroupUID: 'a', binSizeMicrometer: 500 },
+      [],
+    )
+    await flush()
+    const abandoned = mockWorker.requests[1].requestId
+    controller.update({ ...SETTINGS, annotationGroupUID: 'a' }, [])
+    await flush()
+    expect(mockWorker.requests).toHaveLength(2)
+
+    mockWorker.onmessage?.({
+      data: {
+        requestId: abandoned,
+        values: Float32Array.from([99, 99, 99, 99]),
+        counts: Uint32Array.from([1, 1, 1, 1]),
+        width: 2,
+        height: 2,
+        binSizeUnits: 500,
+        minValue: 99,
+        maxValue: 99,
+        includedCount: 2,
+        durationMs: 1,
+      },
+    } as MessageEvent<unknown>)
+    expect(controller.getStatus().grid?.values[0]).toBe(15)
+
+    controller.dispose()
+  })
+
   it('keeps the grid when a group it does not draw is toggled', async () => {
     /*
      * Showing or hiding any group invalidates that group, and a group the
