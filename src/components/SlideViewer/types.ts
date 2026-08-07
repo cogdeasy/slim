@@ -6,6 +6,8 @@ import type DicomWebManager from '../../DicomWebManager'
 import type { Slide } from '../../data/slides'
 import type { AnnotationSettings } from '../../types/annotations'
 import type { RouteComponentProps } from '../../utils/router'
+import type { HeatmapStatus } from './heatmap/HeatmapController'
+import type { HeatmapSettings } from './heatmap/types'
 
 /**
  * Style options for ROI annotations
@@ -129,4 +131,10 @@ export interface SlideViewerState {
   clusteringPixelSizeThreshold: number | null
   isClusteringEnabled: boolean
   isSettingsDrawerOpen: boolean
+  heatmapSettings: HeatmapSettings
+  heatmapStatus: HeatmapStatus
+  /** Full value range of the measurement selected for the heatmap. */
+  heatmapMeasurementRange: [number, number] | null
+  /** Value of the heatmap bin under the cursor, for the legend readout. */
+  heatmapHoveredValue: number | null
 }
