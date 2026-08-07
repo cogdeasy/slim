@@ -241,8 +241,16 @@ const HeatmapMenu: React.FC<HeatmapMenuProps> = ({
               size="small"
               aria-labelledby="heatmap-group-label"
               placeholder="Select an annotation group"
+              /*
+               * Deselecting is the only way back out of a heatmap of one
+               * group without hiding the heatmap itself, and it is what
+               * restores the annotations the measurement filter hid.
+               */
+              allowClear
               value={settings.annotationGroupUID}
-              onChange={(value) => onChange({ annotationGroupUID: value })}
+              onChange={(value?: string) =>
+                onChange({ annotationGroupUID: value })
+              }
               options={annotationGroups.map((group) => ({
                 value: group.uid,
                 label: group.label,

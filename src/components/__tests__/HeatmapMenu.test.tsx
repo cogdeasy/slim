@@ -111,6 +111,19 @@ describe('HeatmapMenu', () => {
     expect(onChange).toHaveBeenCalledWith({ annotationGroupUID: '1.2.4' })
   })
 
+  it('reports a deselected annotation group as a cleared one', async () => {
+    /*
+     * Deselecting has to reach the settings as a patch that clears the group,
+     * rather than as no patch at all: it is what restores the annotations the
+     * measurement filter hid without hiding the heatmap as well.
+     */
+    const onChange = renderMenu({ settings: { annotationGroupUID: '1.2.3' } })
+    const clear = await screen.findByLabelText('close-circle')
+    fireEvent.mouseDown(clear)
+    fireEvent.click(clear)
+    expect(onChange).toHaveBeenCalledWith({ annotationGroupUID: undefined })
+  })
+
   it('hides the annotation group selector for the ROI source', () => {
     renderMenu({ settings: { sourceKind: 'rois' } })
     expect(screen.queryByText('Annotation group')).toBeNull()
