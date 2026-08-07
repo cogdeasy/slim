@@ -313,8 +313,12 @@ export class HeatmapController {
   /**
    * Drop the cached positions of an annotation group.
    *
-   * Called when a group is hidden, because DMV then drops its features and the
-   * cached positions would describe annotations that are no longer there.
+   * Called whenever a group is shown or hidden. Showing one makes DMV
+   * materialize its features, which the cache has to follow. Hiding one leaves
+   * them in place - DMV only sets its layers invisible - so the cache would
+   * survive that on its own; it is dropped anyway rather than made to depend on
+   * an implementation detail of DMV that would silently leave a heatmap of
+   * annotations that no longer exist behind if it ever changed.
    *
    * @param annotationGroupUID - Unique identifier of the annotation group
    */
@@ -986,6 +990,12 @@ export function listMeasurementsOfGroup(
  * Positions and measurement values are compared by identity: both come from a
  * cache that is invalidated whenever the underlying annotations change, so a
  * new array means new data and the same array means the same data.
+ *
+ * Regions of interest are the one source that is deliberately not cached, so
+ * their positions are never identical and this never holds for them. That is
+ * intended: a region of interest changes under the user's hands, and a handful
+ * of them is cheap to re-extract and rebin, which is the trade the cache would
+ * otherwise have to be invalidated from every drawing interaction to make.
  *
  * @param previous - Inputs the current grid was binned from
  * @param next - Inputs of the recompute being considered

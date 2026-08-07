@@ -3155,12 +3155,17 @@ class SlideViewer extends React.Component<SlideViewerProps, SlideViewerState> {
       })
     }
     /*
-     * The features the heatmap was extracted from have been rebuilt, and with
-     * them the styles its filter wrapped. Recomputing rather than only
+     * The features the heatmap was extracted from are being built or rebuilt,
+     * and with them the styles its filter wrapped. Recomputing rather than only
      * invalidating: dropping the filter without replacing it would put every
      * annotation back on the slide while the panel still shows a restricted
      * filter range. A group that has just been shown is still loading, so this
      * recompute reports that and the one on `loading_ended` fills it in.
+     *
+     * Hiding a group leaves its heatmap standing, because DMV keeps the
+     * features and only makes the layers invisible. That is deliberate: the
+     * heatmap describes the annotations rather than draws them, and looking at
+     * it without a million polygons on top is a reason to hide them.
      */
     this.heatmapController?.invalidateAnnotationGroup(annotationGroupUID)
     this.recomputeHeatmap()
