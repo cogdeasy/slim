@@ -238,11 +238,6 @@ declare module 'dicom-microscopy-viewer' {
           opacity?: number
           color?: number[]
           measurement?: dcmjs.sr.coding.CodedConcept
-          /**
-           * Lower and upper bound of the selected measurement. Annotations
-           * whose value falls outside the range are not rendered.
-           */
-          limitValues?: number[]
         }
       ): void
       getAnnotationGroupStyle (annotationGroupUID: string): {

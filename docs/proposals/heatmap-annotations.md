@@ -20,9 +20,9 @@ Build it entirely in Slim as an `ol/layer/Image` backed by an
 features DMV has already materialised, fetch measurement bulk data directly
 over DICOMweb (DMV does not fetch it), bin into flat typed arrays in a Web
 Worker, and paint the resulting grid through a colormap LUT into a canvas.
-**No DMV change is required.** For the measurement filter, do not reimplement
-annotation hiding — DMV's existing `limitValues` annotation-group style option
-already does exactly that.
+**No DMV change is required**, including for the measurement filter: DMV cannot
+hide annotations by measurement value (see the dead end below), so the filter
+wraps the group's OpenLayers layer styles from Slim instead.
 
 ---
 
@@ -276,9 +276,17 @@ range:
 
 - **heatmap** — `filterRange` is passed into the binning request, so excluded
   annotations do not contribute to any bin;
-- **annotations themselves** — `volumeViewer.setAnnotationGroupStyle(uid, { measurement, limitValues })`.
-  DMV already implements value-range hiding for annotation groups; the filter
-  slider should drive that rather than reimplementing visibility.
+- **annotations themselves** — `setAnnotationVisibilityFilter()` in
+  `annotationData.ts`. It builds a `Uint8Array` mask indexed by DICOM annotation
+  index, then replaces the style of every layer holding the group with a wrapper
+  that returns `undefined` (OpenLayers renders nothing) for excluded features and
+  delegates to the original style otherwise. The original style is kept in a
+  `WeakMap` so clearing the filter restores it exactly. Cluster features carry no
+  id of their own, so a cluster is kept whenever any of its members is allowed —
+  bubbles thin out rather than disappear.
+
+  This is deliberately *not* `setAnnotationGroupStyle(uid, { limitValues })`; see
+  the dead end below.
 
 ---
 
@@ -292,19 +300,19 @@ New:
 | `src/components/SlideViewer/heatmap/binning.ts` | `computeHeatmapGrid()`, separable Gaussian blur, `MAX_GRID_DIMENSION` |
 | `src/components/SlideViewer/heatmap/binning.worker.ts` | worker entry point |
 | `src/components/SlideViewer/heatmap/colormap.ts` | RGB LUT ramps + CSS gradient for the legend |
-| `src/components/SlideViewer/heatmap/HeatmapLayer.ts` | `HeatmapLayer`, `sampleGrid()` |
-| `src/components/SlideViewer/heatmap/annotationData.ts` | `extractAnnotationPositions()`, `extractRoiPositions()`, `listMeasurements()`, `fetchMeasurementValues()`, `alignMeasurementValues()`, `getSlideExtent()` |
-| `src/components/SlideViewer/heatmap/HeatmapController.ts` | pipeline, caches, debounce, worker lifecycle, `getMillimeterPerUnit()` |
+| `src/components/SlideViewer/heatmap/HeatmapLayer.ts` | `HeatmapLayer` (`sampleGrid()` lives in `binning.ts` so tests need not load OpenLayers) |
+| `src/components/SlideViewer/heatmap/annotationData.ts` | `extractAnnotationPositions()`, `extractRoiPositions()`, `listMeasurements()`, `fetchMeasurementValues()`, `alignMeasurementValues()`, `getSlideExtent()`, `setAnnotationVisibilityFilter()` |
+| `src/components/SlideViewer/heatmap/HeatmapController.ts` | pipeline, caches, debounce, worker lifecycle, `getMillimeterPerUnit()`, `applyAnnotationVisibility()` |
 | `src/components/HeatmapMenu.tsx` | sidebar panel + legend |
 
 Modified:
 
 | File | Change |
 | --- | --- |
-| `src/components/SlideViewer.tsx` | `heatmapController` field; four state fields; `getHeatmapController()`, `handleHeatmapSettingsChange()`, `refreshHeatmapMeasurementRange()`, `applyMeasurementFilterToAnnotationGroup()`, `updateHeatmapHoverReadout()`; `getHeatmapMenu()`; dispose in `componentWillUnmount` **and** in the `componentDidUpdate` slide-switch branch |
+| `src/components/SlideViewer.tsx` | `heatmapController` field; four state fields; `getHeatmapController()`, `handleHeatmapSettingsChange()`, `refreshHeatmapMeasurementRange()`, `updateHeatmapHoverReadout()`; `getHeatmapMenu()`; dispose in `componentWillUnmount` **and** in the `componentDidUpdate` slide-switch branch |
 | `src/components/SlideViewer/types.ts` | four new `SlideViewerState` fields |
 | `src/components/SlideViewer/SlideViewerSidebar.tsx` | `annotationHeatmapMenu` prop, rendered after `annotationGroupMenu` |
-| `types/dicom-microscopy-viewer/index.d.ts` | declare `getMap()`, `getAffine()`, `utils.applyTransform`/`applyInverseTransform`, and `limitValues` on the annotation-group style options |
+| `types/dicom-microscopy-viewer/index.d.ts` | declare `getMap()`, `getAffine()`, `utils.applyTransform`/`applyInverseTransform` |
 
 Optional follow-up (not prototyped): move the hard-coded `0`/`1000` bounds in
 `AnnotationGroupItem.tsx`'s measurement range slider onto the real measurement
@@ -365,6 +373,16 @@ export class HeatmapController {
   getMeasurementRange(uid: string, measurement: CodedConceptLike): Promise<[number, number] | null>
 }
 
+/**
+ * Hide the annotations of a group whose annotation index is not set in
+ * `allowed`; `null` restores the styles DMV originally set.
+ */
+export function setAnnotationVisibilityFilter(options: {
+  viewer: dmv.viewer.VolumeImageViewer
+  annotationGroupUID: string
+  allowed: Uint8Array | null
+}): void
+
 interface HeatmapMenuProps {
   settings: HeatmapSettings
   status: HeatmapStatus
@@ -397,6 +415,19 @@ interface HeatmapMenuProps {
   viewer path, and the value is `undefined` in practice. Discovering this is
   what forced the direct DICOMweb fetch — which turned out to be the better
   design anyway, since it is 3.6 MB against 308 MB of coordinate data.
+- **`setAnnotationGroupStyle(uid, { limitValues })`.** DMV's optical-path and
+  parameter-mapping style options both take `limitValues`, and the annotation
+  group path accepts the same options object, so it reads as if annotations can
+  be hidden by measurement value. They cannot: `viewer.js` L5012-5087 only ever
+  reads `opacity`, `color` and `measurement` from that object, and unknown keys
+  are dropped without an error or a warning. The first version of this prototype
+  called it and looked correct — the heatmap changed, the status line said
+  "101 of 898,090" — while the annotations on the slide were pixel-identical.
+  **Verify annotation hiding zoomed in past DMV's 1000-annotation clustering
+  threshold**, where individual outlines are drawn; at low zoom the clustered
+  layer masks the difference. The Slim-side style wrapper described in §4
+  replaced it and was confirmed by pixel-diffing the annotation canvas across a
+  filter change (67,150 → 0 drawn pixels, and back on reset).
 - **Transferring typed arrays to the worker.** The obvious optimisation is
   actively harmful here: it detaches the cached position array and turns a
   19 ms recompute into a 1.4 s one.
@@ -470,3 +501,14 @@ grid in the legend readout.
 8. **Log scale with non-positive values.** `sum`/`mean` of a signed measurement
    can be ≤ 0; the prototype's log transform guards with a floor, but the
    correct behaviour (clamp? hide? symlog?) is unresolved.
+9. **The visibility filter overwrites DMV's layer styles.** It stores the
+   original in a `WeakMap` and puts it back when the filter clears, but if DMV
+   itself calls `setStyle` while a filter is active (e.g. the user changes the
+   annotation group's colour or opacity) the wrapper is dropped and the
+   annotations reappear. The production version should re-apply the filter after
+   any `setAnnotationGroupStyle` call, or drive both from one place.
+10. **Restoring the full range is not exactly "no filter".** Dragging the slider
+   back to its bounds leaves a `filterRange` set, and floating-point/step
+   rounding then excludes a slice of annotations at the extremes (observed:
+   631,225 of 898,090 at nominal full range). The production UI should treat a
+   range equal to the measurement's bounds as *unset* rather than as a filter.

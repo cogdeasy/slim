@@ -3049,9 +3049,6 @@ class SlideViewer extends React.Component<SlideViewerProps, SlideViewerState> {
         ) {
           void this.refreshHeatmapMeasurementRange()
         }
-        if (patch.filterRange !== undefined) {
-          this.applyMeasurementFilterToAnnotationGroup()
-        }
       },
     )
   }
@@ -3076,33 +3073,6 @@ class SlideViewer extends React.Component<SlideViewerProps, SlideViewerState> {
     } catch (error) {
       logger.error('failed to determine measurement range', error)
       this.setState({ heatmapMeasurementRange: null })
-    }
-  }
-
-  /**
-   * Push the heatmap's measurement filter into DMV so that the annotations
-   * themselves are filtered too, not only the heatmap.
-   *
-   * DMV expresses this as the `limitValues` style option of an annotation
-   * group, which it already applies when colouring annotations by measurement.
-   */
-  private applyMeasurementFilterToAnnotationGroup = (): void => {
-    const { annotationGroupUID, measurement, filterRange } =
-      this.state.heatmapSettings
-    if (
-      annotationGroupUID === undefined ||
-      measurement === undefined ||
-      filterRange === undefined
-    ) {
-      return
-    }
-    try {
-      this.volumeViewer.setAnnotationGroupStyle(annotationGroupUID, {
-        measurement,
-        limitValues: filterRange,
-      })
-    } catch (error) {
-      logger.error('failed to apply measurement filter', error)
     }
   }
 

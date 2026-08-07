@@ -26,6 +26,18 @@ interface OlVectorSourceLike {
   getSource?: () => OlVectorSourceLike | null
 }
 
+type OlStyleFunctionLike = (
+  feature: OlFeatureLike,
+  resolution: number,
+) => unknown
+
+interface OlVectorLayerLike {
+  getSource?: () => OlVectorSourceLike | null
+  getStyle?: () => unknown
+  setStyle?: (style: unknown) => void
+  changed?: () => void
+}
+
 type VolumeViewer = dmv.viewer.VolumeImageViewer
 
 /**
@@ -66,6 +78,111 @@ function collectSources(viewer: VolumeViewer): OlVectorSourceLike[] {
       }
     })
   return sources
+}
+
+/**
+ * Style functions the filter has replaced, so that clearing the filter can put
+ * the original back. Keyed by layer, so layers DMV recreates simply drop out.
+ */
+const baseStyles = new WeakMap<object, unknown>()
+
+/** Layers of the map whose (possibly clustered) source holds the group. */
+function findAnnotationGroupLayers(
+  viewer: VolumeViewer,
+  annotationGroupUID: string,
+): OlVectorLayerLike[] {
+  return viewer
+    .getMap()
+    .getLayers()
+    .getArray()
+    .filter((layer) => {
+      const candidate = layer as unknown as OlVectorLayerLike
+      if (typeof candidate.getSource !== 'function') {
+        return false
+      }
+      let source = candidate.getSource()
+      while (source !== null && source !== undefined) {
+        const features =
+          typeof source.getFeatures === 'function' ? source.getFeatures() : []
+        if (
+          features.length > 0 &&
+          features[0].get('annotationGroupUID') === annotationGroupUID
+        ) {
+          return true
+        }
+        source =
+          typeof source.getSource === 'function' ? source.getSource() : null
+      }
+      return false
+    }) as unknown as OlVectorLayerLike[]
+}
+
+/**
+ * Hide the annotations of a group whose annotation index is not in `allowed`,
+ * or show all of them again when `allowed` is `null`.
+ *
+ * DMV has no API for this: `setAnnotationGroupStyle` accepts `limitValues` for
+ * optical paths and parameter mappings but silently ignores it for annotation
+ * groups. So the group's layer styles are wrapped instead — an excluded
+ * feature is styled `undefined`, which OpenLayers renders as nothing.
+ *
+ * Cluster features have no id of their own; they are kept whenever any of
+ * their members is allowed, so cluster bubbles thin out rather than vanish.
+ */
+export function setAnnotationVisibilityFilter({
+  viewer,
+  annotationGroupUID,
+  allowed,
+}: {
+  viewer: VolumeViewer
+  annotationGroupUID: string
+  allowed: Uint8Array | null
+}): void {
+  const prefix = `${annotationGroupUID}-`
+
+  const isAllowed = (feature: OlFeatureLike): boolean => {
+    if (allowed === null) {
+      return true
+    }
+    const members = feature.get('features')
+    if (Array.isArray(members)) {
+      return (members as OlFeatureLike[]).some(isAllowed)
+    }
+    const id = feature.getId()
+    if (typeof id !== 'string' || !id.startsWith(prefix)) {
+      return true
+    }
+    const index = Number.parseInt(id.slice(prefix.length), 10)
+    return (
+      Number.isNaN(index) || index >= allowed.length || allowed[index] === 1
+    )
+  }
+
+  for (const layer of findAnnotationGroupLayers(viewer, annotationGroupUID)) {
+    if (
+      typeof layer.getStyle !== 'function' ||
+      typeof layer.setStyle !== 'function'
+    ) {
+      continue
+    }
+    if (!baseStyles.has(layer)) {
+      baseStyles.set(layer, layer.getStyle())
+    }
+    const base = baseStyles.get(layer)
+    if (allowed === null) {
+      layer.setStyle(base)
+      baseStyles.delete(layer)
+      continue
+    }
+    layer.setStyle((feature: OlFeatureLike, resolution: number) => {
+      if (!isAllowed(feature)) {
+        return undefined
+      }
+      return typeof base === 'function'
+        ? (base as OlStyleFunctionLike)(feature, resolution)
+        : base
+    })
+  }
 }
 
 /**

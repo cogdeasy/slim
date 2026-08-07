@@ -9,6 +9,7 @@ import {
   fetchMeasurementValues,
   getSlideExtent,
   listMeasurements,
+  setAnnotationVisibilityFilter,
 } from './annotationData'
 import { computeHeatmapGrid, sampleGrid } from './binning'
 import { HeatmapLayer } from './HeatmapLayer'
@@ -198,6 +199,52 @@ export class HeatmapController {
     }, 150)
   }
 
+  /**
+   * Hide the annotations excluded by the measurement filter on the slide
+   * itself, so the filter does what its label says rather than only reshaping
+   * the heatmap.
+   */
+  private applyAnnotationVisibility(
+    settings: HeatmapSettings,
+    positions: AnnotationPositions,
+    values: Float32Array | undefined,
+  ): void {
+    const uid = settings.annotationGroupUID
+    if (uid === undefined || settings.sourceKind !== 'annotationGroup') {
+      return
+    }
+    const range = settings.filterRange
+    if (range === undefined || values === undefined) {
+      setAnnotationVisibilityFilter({
+        viewer: this.viewer,
+        annotationGroupUID: uid,
+        allowed: null,
+      })
+      return
+    }
+    /*
+     * Indexed by DICOM annotation index rather than by extraction order, so
+     * that it can be applied to any of the group's layers.
+     */
+    let highest = 0
+    for (let i = 0; i < positions.count; i++) {
+      if (positions.annotationIndices[i] > highest) {
+        highest = positions.annotationIndices[i]
+      }
+    }
+    const allowed = new Uint8Array(highest + 1)
+    for (let i = 0; i < positions.count; i++) {
+      if (values[i] >= range[0] && values[i] <= range[1]) {
+        allowed[positions.annotationIndices[i]] = 1
+      }
+    }
+    setAnnotationVisibilityFilter({
+      viewer: this.viewer,
+      annotationGroupUID: uid,
+      allowed,
+    })
+  }
+
   private setStatus(patch: Partial<HeatmapStatus>): void {
     this.status = { ...this.status, ...patch }
     this.onStatusChange(this.status)
@@ -264,6 +311,8 @@ export class HeatmapController {
       })
       return
     }
+
+    this.applyAnnotationVisibility(settings, positions, values)
 
     const millimeterPerUnit = getMillimeterPerUnit(this.viewer)
     const binSizeUnits =
