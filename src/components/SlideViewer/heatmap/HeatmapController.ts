@@ -29,10 +29,26 @@ import {
   type BinningRequest,
   type BinningResponse,
   type HeatmapGrid,
+  type HeatmapMetric,
   type HeatmapSettings,
   type HeatmapStatus,
   INITIAL_HEATMAP_STATUS,
 } from './types'
+
+/**
+ * Everything the binned grid is a function of, held as object identities and
+ * scalars so that a recompute can tell whether it would reproduce the grid
+ * that is already on screen.
+ */
+interface BinningInputs {
+  positions: AnnotationPositions
+  rawValues: Float32Array | null
+  metric: HeatmapMetric
+  binSizeUnits: number
+  smoothingSigmaBins: number
+  filterLow: number | null
+  filterHigh: number | null
+}
 
 /** Recomputes are coalesced over this window while a slider is being dragged. */
 const DEBOUNCE_MILLISECONDS = 150
@@ -76,8 +92,13 @@ export class HeatmapController {
    * `AnnotationPositions`, and the two caches are bounded separately, so a
    * cached aligned array can outlive the positions it belongs to and end up
    * attributing values to the wrong annotations.
+   *
+   * The promise rather than the array is cached, because selecting a
+   * measurement bounds the filter slider and bins the values at the same
+   * moment: caching only the resolved array would let the second of those two
+   * miss a cache the first has not filled yet and download the values twice.
    */
-  private readonly measurementCache = new Map<string, Float32Array>()
+  private readonly measurementCache = new Map<string, Promise<Float32Array>>()
 
   /** Group whose annotations are currently hidden by the filter, if any. */
   private filteredAnnotationGroupUID: string | null = null
@@ -99,7 +120,14 @@ export class HeatmapController {
     extractMs: number
     fetchMeasurementMs: number
     totalStart: number
+    inputs: BinningInputs
   } | null = null
+
+  /**
+   * Inputs the grid currently on screen was binned from, so that a recompute
+   * asking the same question again can keep the answer it already has.
+   */
+  private lastBinnedInputs: BinningInputs | null = null
   private debounceHandle: ReturnType<typeof setTimeout> | null = null
   private status: HeatmapStatus = INITIAL_HEATMAP_STATUS
 
@@ -203,6 +231,7 @@ export class HeatmapController {
     this.pendingRequestId = null
     this.pendingRequest = null
     this.pendingContext = null
+    this.lastBinnedInputs = null
     this.worker?.terminate()
     this.worker = null
     this.clearAnnotationVisibilityFilter()
@@ -269,10 +298,8 @@ export class HeatmapController {
       return null
     }
     /*
-     * Through the cache rather than through `getMeasurementRangeOfGroup`:
-     * selecting a measurement asks for its range and bins it, and the values
-     * are one number per annotation, so the free function would download the
-     * same few megabytes a second time.
+     * Through the same cache the binning uses: selecting a measurement bounds
+     * the slider and bins the values, and both need the whole array.
      */
     return getValueRange(
       await this.getRawMeasurementValues({
@@ -301,6 +328,8 @@ export class HeatmapController {
        */
       this.clearAnnotationVisibilityFilter()
     }
+    /** The grid was binned from positions that are about to be re-extracted. */
+    this.lastBinnedInputs = null
     this.positionCache.delete(annotationGroupUID)
     for (const key of Array.from(this.measurementCache.keys())) {
       if (key.startsWith(`${annotationGroupUID}::`)) {
@@ -378,6 +407,7 @@ export class HeatmapController {
       this.pendingContext = null
       this.clearAnnotationVisibilityFilter()
       this.layer.setGrid(null)
+      this.lastBinnedInputs = null
       /*
        * A layer of Slim's own copy of OpenLayers only sits in DMV's map for
        * as long as it has something to draw. The two copies are compatible
@@ -463,6 +493,7 @@ export class HeatmapController {
      */
     this.clearAnnotationVisibilityFilter()
     this.layer.setGrid(null)
+    this.lastBinnedInputs = null
     this.setStatus({
       isComputing: false,
       grid: null,
@@ -540,6 +571,7 @@ export class HeatmapController {
     const needsMeasurement =
       requiresMeasurement(settings.metric) || settings.filterRange !== undefined
     let values: Float32Array | undefined
+    let rawValues: Float32Array | null = null
     let fetchMeasurementMs = 0
     if (needsMeasurement && settings.sourceKind === 'annotationGroup') {
       if (positions.invalidIndexCount > 0) {
@@ -558,7 +590,9 @@ export class HeatmapController {
       }
       const fetchStart = performance.now()
       try {
-        values = await this.getMeasurementValues(settings, positions)
+        const measurement = await this.getMeasurementValues(settings, positions)
+        values = measurement?.aligned
+        rawValues = measurement?.raw ?? null
       } catch (error) {
         if (this.isStale(generation)) {
           return
@@ -593,6 +627,31 @@ export class HeatmapController {
     const binSizeUnits =
       settings.binSizeMicrometer / 1000 / Math.max(millimeterPerUnit.x, 1e-9)
 
+    const inputs: BinningInputs = {
+      positions,
+      rawValues,
+      metric: settings.metric,
+      binSizeUnits,
+      smoothingSigmaBins: settings.smoothingSigmaBins,
+      filterLow: settings.filterRange?.[0] ?? null,
+      filterHigh: settings.filterRange?.[1] ?? null,
+    }
+    /*
+     * Most recomputes are not asked for by a change of what is binned: the
+     * panel calls `update` for every control it owns, including the ones that
+     * only recolor, and annotations finishing loading calls it whether or not
+     * anything was added. Binning the same inputs again would copy megabytes
+     * to the worker to redraw the picture that is already on screen.
+     */
+    if (
+      this.status.grid !== null &&
+      this.lastBinnedInputs !== null &&
+      sameBinningInputs(this.lastBinnedInputs, inputs)
+    ) {
+      this.setStatus({ isComputing: false })
+      return
+    }
+
     this.requestCounter += 1
     const requestId = this.requestCounter
     this.pendingRequestId = requestId
@@ -604,6 +663,7 @@ export class HeatmapController {
       extractMs,
       fetchMeasurementMs,
       totalStart,
+      inputs,
     }
     const request: BinningRequest = {
       requestId,
@@ -674,6 +734,7 @@ export class HeatmapController {
       includedCount: response.includedCount,
     }
     this.layer.setGrid(grid)
+    this.lastBinnedInputs = context.inputs
     this.setStatus({
       isComputing: false,
       grid,
@@ -740,13 +801,13 @@ export class HeatmapController {
    * @param settings - Current heatmap settings
    * @param positions - Extracted positions
    *
-   * @returns The aligned values, or `undefined` when the group does not have
-   * the selected measurement
+   * @returns The values as fetched and aligned with the positions, or
+   * `undefined` when the group does not have the selected measurement
    */
   private async getMeasurementValues(
     settings: HeatmapSettings,
     positions: AnnotationPositions,
-  ): Promise<Float32Array | undefined> {
+  ): Promise<{ raw: Float32Array; aligned: Float32Array } | undefined> {
     const uid = settings.annotationGroupUID
     const measurement = settings.measurement
     if (uid === undefined || measurement === undefined) {
@@ -771,7 +832,7 @@ export class HeatmapController {
      * gather is a few milliseconds even for a million annotations, and it is
      * the only way to guarantee that the values match the positions in hand.
      */
-    return alignMeasurementValues({ positions, values: raw })
+    return { raw, aligned: alignMeasurementValues({ positions, values: raw }) }
   }
 
   /**
@@ -800,15 +861,23 @@ export class HeatmapController {
     if (cached !== undefined) {
       return cached
     }
-    const raw = await fetchMeasurementValues({
+    const pending = fetchMeasurementValues({
       client: this.client,
       metadata,
       annotationGroupUID,
       measurementIndex: descriptor.index,
     })
     evictOldest(this.measurementCache, MAX_CACHED_MEASUREMENTS)
-    this.measurementCache.set(cacheKey, raw)
-    return raw
+    this.measurementCache.set(cacheKey, pending)
+    try {
+      return await pending
+    } catch (error) {
+      /** A failure is not an answer, so it must not be remembered as one. */
+      if (this.measurementCache.get(cacheKey) === pending) {
+        this.measurementCache.delete(cacheKey)
+      }
+      throw error
+    }
   }
 
   /**
@@ -892,51 +961,30 @@ export function listMeasurementsOfGroup(
 }
 
 /**
- * Get the range of a measurement across a whole annotation group, to bound the
- * filter slider.
+ * Determine whether two sets of binning inputs would produce the same grid.
  *
- * A free function for the same reason as `listMeasurementsOfGroup`: it needs
- * nothing but metadata and a client, so asking for it should not cost a
- * worker and a layer.
+ * Positions and measurement values are compared by identity: both come from a
+ * cache that is invalidated whenever the underlying annotations change, so a
+ * new array means new data and the same array means the same data.
  *
- * @param options - Options
- * @param options.viewer - Volume image viewer
- * @param options.client - Client used to fetch measurement bulk data
- * @param options.annotationGroupUID - Unique identifier of the annotation group
- * @param options.measurement - Coded concept naming the measurement
+ * @param previous - Inputs the current grid was binned from
+ * @param next - Inputs of the recompute being considered
  *
- * @returns The range, or `null` when the group has no such measurement or no
- * finite values
+ * @returns Whether binning `next` would reproduce the current grid
  */
-export async function getMeasurementRangeOfGroup({
-  viewer,
-  client,
-  annotationGroupUID,
-  measurement,
-}: {
-  viewer: dmv.viewer.VolumeImageViewer
-  client: DicomWebManager
-  annotationGroupUID: string
-  measurement: { CodeValue: string; CodingSchemeDesignator: string }
-}): Promise<[number, number] | null> {
-  const metadata = viewer.getAnnotationGroupMetadata(
-    annotationGroupUID,
-  ) as unknown as AnnotationsMetadataLike
-  const descriptor = findMeasurement({
-    metadata,
-    annotationGroupUID,
-    measurement,
-  })
-  if (descriptor === undefined) {
-    return null
-  }
-  const values = await fetchMeasurementValues({
-    client,
-    metadata,
-    annotationGroupUID,
-    measurementIndex: descriptor.index,
-  })
-  return getValueRange(values)
+function sameBinningInputs(
+  previous: BinningInputs,
+  next: BinningInputs,
+): boolean {
+  return (
+    previous.positions === next.positions &&
+    previous.rawValues === next.rawValues &&
+    previous.metric === next.metric &&
+    previous.binSizeUnits === next.binSizeUnits &&
+    previous.smoothingSigmaBins === next.smoothingSigmaBins &&
+    previous.filterLow === next.filterLow &&
+    previous.filterHigh === next.filterHigh
+  )
 }
 
 /**

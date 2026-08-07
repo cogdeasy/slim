@@ -78,7 +78,6 @@ import {
 } from './SlideViewer/constants'
 import type { MeasurementDescriptor } from './SlideViewer/heatmap/annotationData'
 import {
-  getMeasurementRangeOfGroup,
   HeatmapController,
   listMeasurementsOfGroup,
 } from './SlideViewer/heatmap/HeatmapController'
@@ -2565,24 +2564,16 @@ class SlideViewer extends React.Component<SlideViewerProps, SlideViewerState> {
     }
     try {
       /*
-       * Through the controller when there is one: it caches the values, which
-       * the recompute this lookup races with needs as well.
+       * Through the controller, which constructs one if the heatmap has not
+       * been switched on yet. Bounding the slider needs the same few megabytes
+       * of measurement values as binning does, and going around the controller
+       * to avoid constructing it would only mean downloading them twice.
        */
       const heatmapMeasurementRange =
-        this.heatmapController !== null
-          ? await this.heatmapController.getMeasurementRange(
-              annotationGroupUID,
-              measurement,
-            )
-          : await getMeasurementRangeOfGroup({
-              viewer: this.volumeViewer,
-              client:
-                this.props.clients[
-                  StorageClasses.MICROSCOPY_BULK_SIMPLE_ANNOTATION
-                ],
-              annotationGroupUID,
-              measurement,
-            })
+        await this.getHeatmapController().getMeasurementRange(
+          annotationGroupUID,
+          measurement,
+        )
       if (requestId !== this.heatmapMeasurementRangeRequestId) {
         return
       }

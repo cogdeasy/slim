@@ -480,6 +480,91 @@ describe('HeatmapController', () => {
     controller.dispose()
   })
 
+  it('keeps the grid it has when nothing that is binned has changed', async () => {
+    /*
+     * The panel calls `update` for every control it owns, including the ones
+     * that only recolor, and DMV calls it again whenever anything finishes
+     * loading. Binning the same annotations again would copy megabytes to the
+     * worker to arrive at the picture that is already on screen.
+     */
+    const { viewer, setFeatures } = buildViewer()
+    const controller = new HeatmapController({
+      viewer,
+      client: {
+        retrieveBulkData: async () => [Float32Array.from([10, 20]).buffer],
+      } as unknown as DicomWebManager,
+      settings: SETTINGS,
+      onStatusChange: () => {},
+    })
+
+    setFeatures([buildFeature('a', 0), buildFeature('a', 1)])
+    controller.update({ ...SETTINGS, annotationGroupUID: 'a' }, [])
+    await flush()
+    mockWorker.onmessage?.({
+      data: {
+        requestId: mockWorker.requests[0].requestId,
+        values: Float32Array.from([15]),
+        counts: Uint32Array.from([2]),
+        width: 1,
+        height: 1,
+        binSizeUnits: 1000,
+        minValue: 15,
+        maxValue: 15,
+        includedCount: 2,
+        durationMs: 1,
+      },
+    } as MessageEvent<unknown>)
+
+    controller.update(
+      { ...SETTINGS, annotationGroupUID: 'a', opacity: 0.2 },
+      [],
+    )
+    await flush()
+    expect(mockWorker.requests).toHaveLength(1)
+    expect(controller.getStatus().isComputing).toBe(false)
+    expect(controller.getStatus().grid).not.toBeNull()
+
+    /** A bin size, in contrast, is a different question about the same data. */
+    controller.update(
+      { ...SETTINGS, annotationGroupUID: 'a', binSizeMicrometer: 500 },
+      [],
+    )
+    await flush()
+    expect(mockWorker.requests).toHaveLength(2)
+
+    controller.dispose()
+  })
+
+  it('downloads a measurement once when the slider and the heatmap both want it', async () => {
+    /*
+     * Selecting a measurement bounds the filter slider and bins the values at
+     * the same moment. Caching only the resolved array would let the binning
+     * miss a cache the slider has not filled yet and fetch the same few
+     * megabytes a second time.
+     */
+    const { viewer, setFeatures } = buildViewer()
+    const retrieveBulkData = jest.fn(async () => [
+      Float32Array.from([10, 20]).buffer,
+    ])
+    const controller = new HeatmapController({
+      viewer,
+      client: { retrieveBulkData } as unknown as DicomWebManager,
+      settings: SETTINGS,
+      onStatusChange: () => {},
+    })
+
+    setFeatures([buildFeature('a', 0), buildFeature('a', 1)])
+    controller.update({ ...SETTINGS, annotationGroupUID: 'a' }, [])
+    const range = controller.getMeasurementRange('a', AREA)
+    await flush()
+
+    expect(await range).toEqual([10, 20])
+    expect(mockWorker.requests).toHaveLength(1)
+    expect(retrieveBulkData).toHaveBeenCalledTimes(1)
+
+    controller.dispose()
+  })
+
   it('abandons a recompute that a newer one has overtaken', async () => {
     /*
      * Fetching measurements is an unbounded await, so a recompute can be

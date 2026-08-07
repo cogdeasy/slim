@@ -62,6 +62,23 @@ jest.mock('ol/source/ImageCanvas', () => ({
   __esModule: true,
   default: class {
     /**
+     * @param options - Source options
+     * @param options.canvasFunction - Called to render a requested region
+     */
+    constructor({
+      canvasFunction,
+    }: {
+      canvasFunction: (
+        extent: number[],
+        resolution: number,
+        pixelRatio: number,
+        size: number[],
+      ) => HTMLCanvasElement
+    }) {
+      mockCanvasFunctions.push(canvasFunction)
+    }
+
+    /**
      * Accept a change notification.
      */
     changed(): void {}
@@ -72,6 +89,16 @@ jest.mock('ol/source/ImageCanvas', () => ({
     dispose(): void {}
   },
 }))
+
+/** The render callbacks the layers under test handed to their sources. */
+const mockCanvasFunctions: Array<
+  (
+    extent: number[],
+    resolution: number,
+    pixelRatio: number,
+    size: number[],
+  ) => HTMLCanvasElement
+> = []
 
 const GRID: HeatmapGrid = {
   values: Float32Array.from([1, 2, 3, 4]),
@@ -98,6 +125,7 @@ let putImageData: jest.Mock
  * has no canvas implementation of its own.
  */
 beforeEach(() => {
+  mockCanvasFunctions.length = 0
   putImageData = jest.fn()
   HTMLCanvasElement.prototype.getContext = jest.fn(() => ({
     createImageData: (width: number, height: number) => ({
@@ -126,6 +154,27 @@ describe('HeatmapLayer', () => {
     layer.setRenderOptions({ ...OPTIONS, opacity: 0.9 })
     expect(putImageData).toHaveBeenCalledTimes(1)
     expect(layer.getOlLayer().getOpacity()).toBe(0.9)
+
+    layer.dispose()
+  })
+
+  it('renders into the size OpenLayers asked for', () => {
+    /*
+     * `ol/source/ImageCanvas` derives the size from the extent, the resolution
+     * and the device pixel ratio, so it is already in device pixels. Scaling
+     * it again returns an image larger than the renderer expects for the
+     * extent, and the overlay is drawn that many times too big.
+     */
+    const layer = new HeatmapLayer(OPTIONS)
+    layer.setGrid(GRID)
+    const render = mockCanvasFunctions[0]
+
+    const canvas = render([0, 0, 2, 2], 0.5, 2, [300, 200])
+    expect([canvas.width, canvas.height]).toEqual([300, 200])
+
+    /** The canvas is reused, rather than allocated once per pan step. */
+    const next = render([1, 1, 3, 3], 0.5, 2, [300, 200])
+    expect(next).toBe(canvas)
 
     layer.dispose()
   })

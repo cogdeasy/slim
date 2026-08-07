@@ -63,8 +63,10 @@ export const DEFAULT_HEATMAP_SETTINGS: HeatmapSettings = {
 
 /**
  * Positions of the annotations of one source, in OpenLayers projection
- * coordinates (see `docs/proposals/heatmap-annotations.md` for the coordinate
- * system definitions).
+ * coordinates: the coordinate system of the map DMV builds, in which x grows
+ * to the right from 0 and y grows upwards from `-(rows + 1)` to `-1`, so that
+ * the top of the slide is the largest y. One unit is one pixel of the highest
+ * resolution level, which `getMillimeterPerUnit` converts to millimeters.
  *
  * Stored as flat typed arrays (12 bytes per annotation) so that hundreds of
  * thousands of annotations can be cached and handed to a worker cheaply.

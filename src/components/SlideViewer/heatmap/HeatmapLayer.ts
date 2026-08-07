@@ -59,6 +59,12 @@ function affectsPixels(
 export class HeatmapLayer {
   private readonly layer: ImageLayer<ImageCanvasSource>
   private readonly offscreen: HTMLCanvasElement
+  /**
+   * The canvas handed back to OpenLayers, reused across renders. The source
+   * holds one image at a time, and asks for a new one whenever the extent it
+   * needs is no longer covered, which is every step of a pan.
+   */
+  private readonly target: HTMLCanvasElement
   private grid: HeatmapGrid | null = null
   private options: HeatmapRenderOptions
 
@@ -68,11 +74,12 @@ export class HeatmapLayer {
   constructor(options: HeatmapRenderOptions) {
     this.options = options
     this.offscreen = document.createElement('canvas')
+    this.target = document.createElement('canvas')
     this.layer = new ImageLayer({
       source: new ImageCanvasSource({
         ratio: 1,
-        canvasFunction: (extent, _resolution, pixelRatio, size) =>
-          this.renderCanvas({ extent, pixelRatio, size }),
+        canvasFunction: (extent, _resolution, _pixelRatio, size) =>
+          this.renderCanvas({ extent, size }),
       }),
       opacity: options.opacity,
       visible: false,
@@ -138,6 +145,8 @@ export class HeatmapLayer {
     this.grid = null
     this.offscreen.width = 0
     this.offscreen.height = 0
+    this.target.width = 0
+    this.target.height = 0
     this.layer.getSource()?.dispose()
     this.layer.dispose()
   }
@@ -192,23 +201,28 @@ export class HeatmapLayer {
    *
    * @param options - Options
    * @param options.extent - Requested extent in projection coordinates
-   * @param options.pixelRatio - Device pixel ratio
-   * @param options.size - Requested size in CSS pixels
+   * @param options.size - Requested size, already in device pixels
    *
    * @returns The canvas to composite
    */
   private renderCanvas({
     extent,
-    pixelRatio,
     size,
   }: {
     extent: number[]
-    pixelRatio: number
     size: number[]
   }): HTMLCanvasElement {
-    const canvas = document.createElement('canvas')
-    const width = Math.max(1, Math.round(size[0] * pixelRatio))
-    const height = Math.max(1, Math.round(size[1] * pixelRatio))
+    const canvas = this.target
+    /*
+     * `ol/source/ImageCanvas` derives the size it asks for as the extent over
+     * the resolution times the device pixel ratio, so it is already in device
+     * pixels. Scaling it again would return an image larger than the one the
+     * renderer records for this extent, and the overlay would be drawn that
+     * many times too big, anchored at the top left of the extent.
+     */
+    const width = Math.max(1, Math.round(size[0]))
+    const height = Math.max(1, Math.round(size[1]))
+    /** Assigning the dimensions also clears whatever the last render drew. */
     canvas.width = width
     canvas.height = height
     const context = canvas.getContext('2d')
