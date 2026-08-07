@@ -8,6 +8,7 @@ import {
   type AnnotationsMetadataLike,
   alignMeasurementValues,
   buildVisibilityMask,
+  countAnnotationFeatures,
   extractAnnotationPositions,
   extractRoiPositions,
   fetchMeasurementValues,
@@ -311,11 +312,10 @@ export class HeatmapController {
   }
 
   /**
-   * Drop what is cached for an annotation group.
+   * Drop the cached positions of an annotation group.
    *
-   * Called when a group is hidden (its features are then dropped by DMV, and
-   * the cached positions would go stale) and when it is shown (the previously
-   * cached positions may have been extracted from a partially loaded group).
+   * Called when a group is hidden, because DMV then drops its features and the
+   * cached positions would describe annotations that are no longer there.
    *
    * @param annotationGroupUID - Unique identifier of the annotation group
    */
@@ -331,11 +331,12 @@ export class HeatmapController {
     /** The grid was binned from positions that are about to be re-extracted. */
     this.lastBinnedInputs = null
     this.positionCache.delete(annotationGroupUID)
-    for (const key of Array.from(this.measurementCache.keys())) {
-      if (key.startsWith(`${annotationGroupUID}::`)) {
-        this.measurementCache.delete(key)
-      }
-    }
+    /*
+     * The measurements are deliberately kept: they are bulk data of the
+     * annotation instance rather than state of the features DMV is rebuilding,
+     * so they cannot go stale, and they are realigned with whatever positions
+     * the next extraction yields.
+     */
   }
 
   /**
@@ -770,24 +771,33 @@ export class HeatmapController {
     if (uid === undefined) {
       return null
     }
+    const viewer = this.viewer as unknown as ViewerLike
+    /*
+     * DMV materializes a large group progressively, so an extraction taken
+     * while it is loading is a snapshot of a group that is still growing.
+     * Counting the features of the source is cheap next to extracting them,
+     * and it is the one growth signal that is always available:
+     * `NumberOfAnnotations` is optional in the metadata, and trusting a
+     * cached snapshot in its absence would freeze the heatmap on partial data
+     * until the group is toggled off and on.
+     *
+     * Only growth invalidates. A source that momentarily holds fewer features
+     * than it did - as the cluster source swaps its contents around a zoom
+     * threshold - is not new data, and re-extracting from it would make the
+     * heatmap flicker; a group that is really gone is invalidated explicitly
+     * by `invalidateAnnotationGroup` when it is hidden.
+     */
+    const sourceCount = countAnnotationFeatures(viewer, uid)
     const cached = readCache(this.positionCache, uid)
-    if (cached !== undefined) {
+    if (cached !== undefined && sourceCount <= cached.sourceCount) {
       return cached
     }
     const positions = extractAnnotationPositions({
-      viewer: this.viewer as unknown as ViewerLike,
+      viewer,
       annotationGroupUID: uid,
       expectedCount: getExpectedAnnotationCount(this.getMetadata(uid), uid),
     })
-    /*
-     * Only a complete extraction is worth remembering. DMV materializes a
-     * large group progressively, so an extraction taken too early is a
-     * snapshot of a group that is still growing; caching it would freeze the
-     * heatmap on the partial data until the group is toggled off and on.
-     * Re-extracting costs a walk over the features, which is the price of the
-     * heatmap becoming complete on its own.
-     */
-    if (positions !== null && isComplete(positions)) {
+    if (positions !== null && positions.count > 0) {
       evictOldest(this.positionCache, MAX_CACHED_POSITIONS)
       this.positionCache.set(uid, positions)
     }
@@ -1037,21 +1047,6 @@ function readCache<T>(cache: Map<string, T>, key: string): T | undefined {
   cache.delete(key)
   cache.set(key, value)
   return value
-}
-
-/**
- * Determine whether an extraction covers the whole annotation group.
- *
- * @param positions - Extracted positions
- *
- * @returns Whether every annotation the group documents was extracted
- */
-function isComplete(positions: AnnotationPositions): boolean {
-  return (
-    positions.count > 0 &&
-    (positions.expectedCount === null ||
-      positions.count >= positions.expectedCount)
-  )
 }
 
 /**

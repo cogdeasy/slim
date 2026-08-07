@@ -2,6 +2,7 @@ import {
   alignMeasurementValues,
   type AnnotationsMetadataLike,
   buildVisibilityMask,
+  countAnnotationFeatures,
   decodeBulkDataValues,
   extractAnnotationPositions,
   findMeasurement,
@@ -281,6 +282,30 @@ describe('extractAnnotationPositions', () => {
   })
 })
 
+describe('countAnnotationFeatures', () => {
+  it('counts the features of the fullest source of the group', () => {
+    const viewer = buildViewer([
+      buildLayer([buildFeature({ id: `${GROUP_UID}-0` })]),
+      buildLayer([
+        buildFeature({ id: `${GROUP_UID}-0` }),
+        buildFeature({ id: `${GROUP_UID}-1` }),
+      ]),
+      buildLayer([
+        buildFeature({ id: 'other-0', annotationGroupUID: 'other' }),
+        buildFeature({ id: 'other-1', annotationGroupUID: 'other' }),
+        buildFeature({ id: 'other-2', annotationGroupUID: 'other' }),
+      ]),
+    ])
+    expect(countAnnotationFeatures(viewer, GROUP_UID)).toBe(2)
+  })
+
+  it('counts nothing for a group that has not been materialized', () => {
+    expect(countAnnotationFeatures(buildViewer([buildLayer([])]), GROUP_UID)).toBe(
+      0,
+    )
+  })
+})
+
 describe('alignMeasurementValues', () => {
   /**
    * Build positions with the given annotation indices.
@@ -293,6 +318,7 @@ describe('alignMeasurementValues', () => {
     xy: new Float32Array(annotationIndices.length * 2),
     annotationIndices: Int32Array.from(annotationIndices),
     count: annotationIndices.length,
+    sourceCount: annotationIndices.length,
     invalidIndexCount: annotationIndices.filter((index) => index < 0).length,
     expectedCount: null,
     extent: [0, -100, 100, 0],
@@ -322,6 +348,7 @@ describe('buildVisibilityMask', () => {
     xy: new Float32Array(6),
     annotationIndices: Int32Array.from([0, 1, 2]),
     count: 3,
+    sourceCount: 3,
     invalidIndexCount: 0,
     expectedCount: 3,
     extent: [0, -100, 100, 0],

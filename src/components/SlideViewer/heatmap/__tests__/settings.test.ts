@@ -96,6 +96,21 @@ describe('applySettingsPatch', () => {
     expect(updated.clampRange).toBeUndefined()
   })
 
+  it('drops the measurement and the filter when the group is cleared', () => {
+    /*
+     * Deselecting the group is a patch that sets it to `undefined`, and it
+     * leaves the measurement and the ranges as meaningless as picking another
+     * group would.
+     */
+    const updated = applySettingsPatch(settings, {
+      annotationGroupUID: undefined,
+    })
+    expect(updated.annotationGroupUID).toBeUndefined()
+    expect(updated.measurement).toBeUndefined()
+    expect(updated.filterRange).toBeUndefined()
+    expect(updated.clampRange).toBeUndefined()
+  })
+
   it('keeps the filter across a switch between measurement metrics', () => {
     expect(applySettingsPatch(settings, { metric: 'max' }).filterRange).toEqual(
       [1, 5],

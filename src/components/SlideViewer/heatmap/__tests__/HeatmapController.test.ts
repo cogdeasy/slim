@@ -116,15 +116,22 @@ function buildFeature(
  * measurement, whose values are referenced as bulk data.
  *
  * @param annotationGroupUID - Unique identifier of the annotation group
+ * @param numberOfAnnotations - Value of `NumberOfAnnotations`, omitted from
+ *   the metadata when `null`, as it is for a group that does not document it
  *
  * @returns The fake metadata
  */
-function buildMetadata(annotationGroupUID: string): object {
+function buildMetadata(
+  annotationGroupUID: string,
+  numberOfAnnotations: number | null,
+): object {
   return {
     AnnotationGroupSequence: [
       {
         AnnotationGroupUID: annotationGroupUID,
-        NumberOfAnnotations: 2,
+        ...(numberOfAnnotations === null
+          ? {}
+          : { NumberOfAnnotations: numberOfAnnotations }),
         MeasurementsSequence: [
           {
             ConceptNameCodeSequence: [AREA],
@@ -160,9 +167,12 @@ function buildMetadata(annotationGroupUID: string): object {
  * Build a viewer whose annotation features can be rearranged between
  * extractions, the way DMV rebuilds them when a group is reloaded.
  *
+ * @param numberOfAnnotations - Number of annotations the metadata of a group
+ *   documents, `null` for a group that documents none
+ *
  * @returns The viewer and a way to set the features it exposes
  */
-function buildViewer(): {
+function buildViewer(numberOfAnnotations: number | null = 2): {
   viewer: dmv.viewer.VolumeImageViewer
   setFeatures: (features: OlFeatureLike[]) => void
   getStyle: () => unknown
@@ -196,7 +206,7 @@ function buildViewer(): {
       [0, 0, 1],
     ],
     getAnnotationGroupMetadata: (annotationGroupUID: string) =>
-      buildMetadata(annotationGroupUID),
+      buildMetadata(annotationGroupUID, numberOfAnnotations),
   }
   return {
     viewer: viewer as unknown as dmv.viewer.VolumeImageViewer,
@@ -286,13 +296,53 @@ describe('HeatmapController', () => {
     controller.dispose()
   })
 
+  it('keeps the measurements of a group that is hidden and shown again', async () => {
+    /*
+     * Hiding a group makes DMV drop its features, so the positions have to go,
+     * but the measurements are bulk data of the annotation instance: they
+     * cannot have changed, and re-downloading megabytes of them on a
+     * visibility toggle would be pure waste.
+     */
+    const { viewer, setFeatures } = buildViewer()
+    const retrieveBulkData = jest.fn(async () => [
+      Float32Array.from([10, 20]).buffer,
+    ])
+    const controller = new HeatmapController({
+      viewer,
+      client: { retrieveBulkData } as unknown as DicomWebManager,
+      settings: SETTINGS,
+      onStatusChange: () => {},
+    })
+
+    setFeatures([buildFeature('a', 0), buildFeature('a', 1)])
+    controller.update({ ...SETTINGS, annotationGroupUID: 'a' }, [])
+    await flush()
+    expect(retrieveBulkData).toHaveBeenCalledTimes(1)
+
+    /** DMV tore the features down and rebuilt them in the opposite order. */
+    controller.invalidateAnnotationGroup('a')
+    setFeatures([buildFeature('a', 1), buildFeature('a', 0)])
+    controller.update({ ...SETTINGS, annotationGroupUID: 'a' }, [])
+    await flush()
+
+    const last = mockWorker.requests[mockWorker.requests.length - 1]
+    expect(Array.from(last.values ?? [])).toEqual([20, 10])
+    expect(retrieveBulkData).toHaveBeenCalledTimes(1)
+
+    controller.dispose()
+  })
+
   it('re-extracts a group that was still loading when it was first read', async () => {
     /*
      * DMV materializes a large group progressively, so an extraction can be a
      * snapshot of a group that is still growing. Caching it would freeze the
      * heatmap on the partial data for as long as the group stays visible.
+     *
+     * The group here documents no `NumberOfAnnotations`, which is optional, so
+     * the growth of the source is the only thing that can reveal the snapshot
+     * as partial.
      */
-    const { viewer, setFeatures } = buildViewer()
+    const { viewer, setFeatures } = buildViewer(null)
     const controller = new HeatmapController({
       viewer,
       client: {
@@ -302,7 +352,7 @@ describe('HeatmapController', () => {
       onStatusChange: () => {},
     })
 
-    /** One of the two annotations the metadata documents has arrived. */
+    /** The first of the annotations of the group has arrived. */
     setFeatures([buildFeature('a', 0)])
     controller.update({ ...SETTINGS, annotationGroupUID: 'a' }, [])
     await flush()
@@ -313,9 +363,14 @@ describe('HeatmapController', () => {
     await flush()
     expect(mockWorker.requests[1].xy).toHaveLength(4)
 
-    /** A complete extraction, in contrast, is answered from the cache. */
+    /*
+     * A source that has stopped growing is answered from the cache, and a
+     * source that momentarily holds fewer features - the cluster source
+     * swapping its contents around a zoom threshold - keeps the heatmap it
+     * was binned from rather than flickering.
+     */
     setFeatures([])
-    controller.update({ ...SETTINGS, annotationGroupUID: 'a' }, [])
+    controller.update({ ...SETTINGS, annotationGroupUID: 'a', opacity: 0.4 }, [])
     await flush()
     expect(mockWorker.requests[2].xy).toHaveLength(4)
 

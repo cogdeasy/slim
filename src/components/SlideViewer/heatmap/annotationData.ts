@@ -358,23 +358,7 @@ export function extractAnnotationPositions({
 }): AnnotationPositions | null {
   const prefix = `${annotationGroupUID}-`
 
-  let best: OlFeatureLike[] | null = null
-  for (const source of collectSources(viewer)) {
-    if (typeof source.getFeatures !== 'function') {
-      continue
-    }
-    const features = source.getFeatures()
-    if (features.length === 0) {
-      continue
-    }
-    if (features[0].get('annotationGroupUID') !== annotationGroupUID) {
-      continue
-    }
-    if (best === null || features.length > best.length) {
-      best = features
-    }
-  }
-
+  const best = findAnnotationFeatures(viewer, annotationGroupUID)
   if (best === null) {
     return null
   }
@@ -422,10 +406,68 @@ export function extractAnnotationPositions({
         ? annotationIndices
         : annotationIndices.slice(0, written),
     count: written,
+    sourceCount: count,
     invalidIndexCount,
     expectedCount,
     extent: getSlideExtent(viewer),
   }
+}
+
+/**
+ * Count the features the source of an annotation group currently holds.
+ *
+ * Cheap compared with an extraction, which reads a geometry and parses an
+ * identifier per feature, so it can be asked on every recompute to tell
+ * whether a cached extraction has been overtaken by annotations that have
+ * arrived since.
+ *
+ * @param viewer - Volume image viewer
+ * @param annotationGroupUID - Unique identifier of the annotation group
+ *
+ * @returns The number of features, `0` when the group has no source
+ */
+export function countAnnotationFeatures(
+  viewer: ViewerLike,
+  annotationGroupUID: string,
+): number {
+  return findAnnotationFeatures(viewer, annotationGroupUID)?.length ?? 0
+}
+
+/**
+ * Find the features of an annotation group, taking the source that holds the
+ * most of them.
+ *
+ * DMV keeps several sources per group - a point source, a polygon source and
+ * the cluster source wrapping them - and which of them is populated depends
+ * on the zoom level and the clustering setting, so the fullest one is the
+ * only defensible choice.
+ *
+ * @param viewer - Volume image viewer
+ * @param annotationGroupUID - Unique identifier of the annotation group
+ *
+ * @returns The features, or `null` when no source holds any
+ */
+function findAnnotationFeatures(
+  viewer: ViewerLike,
+  annotationGroupUID: string,
+): OlFeatureLike[] | null {
+  let best: OlFeatureLike[] | null = null
+  for (const source of collectSources(viewer)) {
+    if (typeof source.getFeatures !== 'function') {
+      continue
+    }
+    const features = source.getFeatures()
+    if (features.length === 0) {
+      continue
+    }
+    if (features[0].get('annotationGroupUID') !== annotationGroupUID) {
+      continue
+    }
+    if (best === null || features.length > best.length) {
+      best = features
+    }
+  }
+  return best
 }
 
 /**
@@ -476,6 +518,7 @@ export function extractRoiPositions({
     xy,
     annotationIndices,
     count: rois.length,
+    sourceCount: rois.length,
     invalidIndexCount: 0,
     expectedCount: rois.length,
     extent: getSlideExtent(viewer as unknown as ViewerLike),

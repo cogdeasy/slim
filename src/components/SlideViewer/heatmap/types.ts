@@ -81,6 +81,14 @@ export interface AnnotationPositions {
    */
   annotationIndices: Int32Array
   count: number
+  /**
+   * Number of features the source held at extraction time, which is `count`
+   * plus the features that were skipped. Comparing it with the number of
+   * features the source holds now is what tells a cached extraction apart
+   * from an extraction that annotations have arrived after, and unlike
+   * `expectedCount` it is always known.
+   */
+  sourceCount: number
   /** Number of entries of `annotationIndices` that are `-1`. */
   invalidIndexCount: number
   /**

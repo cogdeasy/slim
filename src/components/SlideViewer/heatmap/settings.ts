@@ -33,26 +33,27 @@ export function applySettingsPatch(
    * that source, and this keeps a metric chosen for an annotation group from
    * surviving the switch and stranding the user on an error message.
    */
-  if (updated.sourceKind === 'rois' && patch.metric === undefined) {
+  if (updated.sourceKind === 'rois' && !('metric' in patch)) {
     updated.metric = 'density'
   }
   /*
-   * Membership rather than a value comparison: clearing the measurement is a
-   * change of what is aggregated just as much as picking a different one is.
+   * Every field is tested for membership rather than for a defined value:
+   * clearing the selected group or measurement is a change of what is
+   * aggregated just as much as picking a different one is, and a patch that
+   * clears one is exactly how the panel deselects.
    */
   const changesMeasurement = 'measurement' in patch
-  const changesSource =
-    patch.annotationGroupUID !== undefined || patch.sourceKind !== undefined
+  const changesSource = 'annotationGroupUID' in patch || 'sourceKind' in patch
   /** A measurement belongs to one group, so it cannot survive a group change. */
   if (changesSource && !changesMeasurement) {
     updated.measurement = undefined
   }
   const changesAggregation =
-    patch.metric !== undefined ||
+    'metric' in patch ||
     changesMeasurement ||
-    patch.binSizeMicrometer !== undefined ||
+    'binSizeMicrometer' in patch ||
     changesSource
-  if (changesAggregation && patch.clampRange === undefined) {
+  if (changesAggregation && !('clampRange' in patch)) {
     updated.clampRange = undefined
   }
   /*
@@ -64,7 +65,7 @@ export function applySettingsPatch(
     (changesMeasurement ||
       changesSource ||
       !requiresMeasurement(updated.metric)) &&
-    patch.filterRange === undefined
+    !('filterRange' in patch)
   ) {
     updated.filterRange = undefined
   }
