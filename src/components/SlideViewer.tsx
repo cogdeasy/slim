@@ -451,8 +451,6 @@ class SlideViewer extends React.Component<SlideViewerProps, SlideViewerState> {
 
       const [offset, size] = this.volumeViewer.boundingBox
 
-      /** A range being fetched belongs to a group of the slide being left. */
-      this.heatmapMeasurementRangeRequestId += 1
       this.setState({
         visibleRoiUIDs: new Set(),
         visibleSegmentUIDs: new Set(),
@@ -2517,6 +2515,11 @@ class SlideViewer extends React.Component<SlideViewerProps, SlideViewerState> {
   private disposeHeatmapController = (): void => {
     this.heatmapController?.dispose()
     this.heatmapController = null
+    /*
+     * A range still being fetched belongs to a group of the slide being left,
+     * and there is no longer a controller to have asked for it.
+     */
+    this.heatmapMeasurementRangeRequestId += 1
   }
 
   /**

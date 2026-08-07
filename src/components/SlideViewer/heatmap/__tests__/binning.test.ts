@@ -195,6 +195,72 @@ describe('computeHeatmapGrid', () => {
     /** Smoothing spreads the single count over neighbouring bins. */
     expect(smooth.maxValue).toBeLessThan(sharp.maxValue)
   })
+
+  it('keeps smoothed means in the range of the values they came from', () => {
+    /*
+     * Empty bins hold no measurement, not a measurement of zero, so an
+     * ordinary blur would report a mean far below anything on the slide
+     * wherever the neighbourhood is sparse - and smoothing is on by default.
+     */
+    const response = computeHeatmapGrid(
+      buildRequest({
+        xy: new Float32Array([0.5, 3.5, 1.5, 3.5]),
+        values: new Float32Array([100, 200]),
+        metric: 'mean',
+        smoothingSigmaBins: 1,
+      }),
+    )
+    expect(response.minValue).toBeGreaterThanOrEqual(100)
+    expect(response.maxValue).toBeLessThanOrEqual(200)
+  })
+
+  it('weights a smoothed mean by how many annotations each bin holds', () => {
+    /*
+     * Smoothing a mean is the mean over a wider area, so a bin speaking for
+     * three annotations has to pull harder than one speaking for a single
+     * annotation.
+     */
+    const response = computeHeatmapGrid(
+      buildRequest({
+        xy: new Float32Array([0.5, 3.5, 0.6, 3.4, 0.7, 3.3, 1.5, 3.5]),
+        values: new Float32Array([100, 100, 100, 200]),
+        metric: 'mean',
+        smoothingSigmaBins: 1,
+      }),
+    )
+    expect(response.values[1]).toBeLessThan(150)
+  })
+
+  it('keeps smoothed maxima in the range of the values they came from', () => {
+    const response = computeHeatmapGrid(
+      buildRequest({
+        xy: new Float32Array([0.5, 3.5, 1.5, 3.5]),
+        values: new Float32Array([100, 200]),
+        metric: 'max',
+        smoothingSigmaBins: 1,
+      }),
+    )
+    expect(response.minValue).toBeGreaterThanOrEqual(100)
+    expect(response.maxValue).toBeLessThanOrEqual(200)
+  })
+
+  it('still spreads the mass of an extensive metric', () => {
+    /*
+     * A count is shared out between the bins rather than describing each of
+     * them, so its blur has to stay the mass preserving one.
+     */
+    const response = computeHeatmapGrid(
+      buildRequest({
+        /** Wide enough that the kernel does not reach over the edge. */
+        extent: [0, 0, 9, 9],
+        xy: new Float32Array([4.5, 4.5]),
+        metric: 'density',
+        smoothingSigmaBins: 1,
+      }),
+    )
+    const total = response.values.reduce((sum, value) => sum + value, 0)
+    expect(total).toBeCloseTo(1, 3)
+  })
 })
 
 describe('gaussianBlur', () => {

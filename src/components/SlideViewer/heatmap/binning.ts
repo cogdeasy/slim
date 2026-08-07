@@ -1,4 +1,9 @@
-import type { BinningRequest, BinningResponse, HeatmapGrid } from './types'
+import type {
+  BinningRequest,
+  BinningResponse,
+  HeatmapGrid,
+  HeatmapMetric,
+} from './types'
 
 /**
  * Largest grid dimension we are willing to allocate. Small bin sizes on a
@@ -131,18 +136,37 @@ export function computeHeatmapGrid(request: BinningRequest): BinningResponse {
 
   let coverage = counts
   if (smoothingSigmaBins > 0) {
-    aggregated = gaussianBlur({
-      source: aggregated,
+    const occupancy = new Float32Array(numberOfBins)
+    for (let bin = 0; bin < numberOfBins; bin++) {
+      occupancy[bin] = counts[bin] > 0 ? 1 : 0
+    }
+    const blurredOccupancy = gaussianBlur({
+      source: occupancy,
       width,
       height,
       sigma: smoothingSigmaBins,
     })
-    coverage = blurCoverage({
-      counts,
-      width,
-      height,
-      sigma: smoothingSigmaBins,
-    })
+    aggregated = isExtensive(metric)
+      ? gaussianBlur({
+          source: aggregated,
+          width,
+          height,
+          sigma: smoothingSigmaBins,
+        })
+      : smoothIntensive({
+          aggregated,
+          /*
+           * A mean is weighted by how many annotations each neighbouring bin
+           * speaks for, so that smoothing it is the mean over a wider area
+           * rather than the mean of means; a maximum has no such weight, so
+           * every populated neighbour counts once.
+           */
+          weights: metric === 'mean' ? counts : occupancy,
+          width,
+          height,
+          sigma: smoothingSigmaBins,
+        })
+    coverage = thresholdCoverage({ counts, blurredOccupancy })
   }
 
   const { minValue, maxValue } = findValueRange({
@@ -251,36 +275,101 @@ export function gaussianBlur({
 }
 
 /**
- * Blur the occupancy mask so that smoothing widens the rendered footprint
- * instead of leaving smoothed values stranded in bins marked transparent.
+ * Whether a metric measures an amount that the bins share out between them,
+ * rather than a property of the annotations that happen to fall in a bin.
+ *
+ * The distinction is what smoothing has to preserve: blurring a count or a
+ * total spreads it over the neighbourhood without creating or destroying any
+ * of it, whereas blurring a mean or a maximum has to leave the result in the
+ * units and the range of the values it came from.
+ *
+ * @param metric - Aggregation metric
+ *
+ * @returns Whether the metric is extensive
+ */
+function isExtensive(metric: HeatmapMetric): boolean {
+  return metric === 'density' || metric === 'sum'
+}
+
+/**
+ * Smooth a grid of per-bin means or maxima by normalized convolution.
+ *
+ * An ordinary blur would mix the zeros of the empty bins into the result and
+ * report a mean well below any measurement the slide actually holds - the
+ * emptier the neighbourhood, the further below. Blurring the weighted values
+ * and the weights with the same kernel and dividing keeps empty bins out of
+ * both sides of the ratio, so the result stays within the range of the values
+ * that went into it.
  *
  * @param options - Options
- * @param options.counts - Number of annotations per bin
+ * @param options.aggregated - Aggregated value per bin
+ * @param options.weights - Weight of each bin, zero where it holds nothing
  * @param options.width - Number of columns
  * @param options.height - Number of rows
  * @param options.sigma - Standard deviation in bins
  *
- * @returns Occupancy counts widened by the blur
+ * @returns A new smoothed grid
  */
-function blurCoverage({
-  counts,
+function smoothIntensive({
+  aggregated,
+  weights,
   width,
   height,
   sigma,
 }: {
-  counts: Uint32Array
+  aggregated: Float32Array
+  weights: Uint32Array | Float32Array
   width: number
   height: number
   sigma: number
-}): Uint32Array {
-  const occupancy = new Float32Array(counts.length)
-  for (let i = 0; i < counts.length; i++) {
-    occupancy[i] = counts[i] > 0 ? 1 : 0
+}): Float32Array {
+  const weighted = new Float32Array(aggregated.length)
+  const weightGrid = new Float32Array(aggregated.length)
+  for (let bin = 0; bin < aggregated.length; bin++) {
+    weighted[bin] = aggregated[bin] * weights[bin]
+    weightGrid[bin] = weights[bin]
   }
-  const blurred = gaussianBlur({ source: occupancy, width, height, sigma })
+  const blurredWeighted = gaussianBlur({
+    source: weighted,
+    width,
+    height,
+    sigma,
+  })
+  const blurredWeights = gaussianBlur({
+    source: weightGrid,
+    width,
+    height,
+    sigma,
+  })
+  const output = new Float32Array(aggregated.length)
+  for (let bin = 0; bin < output.length; bin++) {
+    output[bin] =
+      blurredWeights[bin] > 0 ? blurredWeighted[bin] / blurredWeights[bin] : 0
+  }
+  return output
+}
+
+/**
+ * Widen the occupancy mask by the blur, so that smoothing widens the rendered
+ * footprint instead of leaving smoothed values stranded in bins marked
+ * transparent.
+ *
+ * @param options - Options
+ * @param options.counts - Number of annotations per bin
+ * @param options.blurredOccupancy - Blurred occupancy mask
+ *
+ * @returns Occupancy counts widened by the blur
+ */
+function thresholdCoverage({
+  counts,
+  blurredOccupancy,
+}: {
+  counts: Uint32Array
+  blurredOccupancy: Float32Array
+}): Uint32Array {
   const output = new Uint32Array(counts.length)
   for (let i = 0; i < counts.length; i++) {
-    output[i] = blurred[i] > 0.02 ? Math.max(1, counts[i]) : 0
+    output[i] = blurredOccupancy[i] > 0.02 ? Math.max(1, counts[i]) : 0
   }
   return output
 }
