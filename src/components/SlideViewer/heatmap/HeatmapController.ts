@@ -331,8 +331,18 @@ export class HeatmapController {
        */
       this.clearAnnotationVisibilityFilter()
     }
-    /** The grid was binned from positions that are about to be re-extracted. */
-    this.lastBinnedInputs = null
+    /*
+     * Only when the grid on screen is the one built from those positions. Any
+     * other group is a group the heatmap does not draw, and forgetting what
+     * the grid was binned from would make showing or hiding it re-extract and
+     * re-bin a million annotations to arrive at the same picture.
+     */
+    if (
+      this.lastBinnedInputs?.positions ===
+      this.positionCache.get(annotationGroupUID)
+    ) {
+      this.lastBinnedInputs = null
+    }
     this.positionCache.delete(annotationGroupUID)
     /*
      * The measurements are deliberately kept: they are bulk data of the
@@ -495,6 +505,8 @@ export class HeatmapController {
       timings: null,
       annotationCount: 0,
       error: message,
+      /** Of the grid that has just been dropped, so it describes nothing now. */
+      warning: null,
     })
   }
 

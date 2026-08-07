@@ -618,6 +618,56 @@ describe('HeatmapController', () => {
     controller.dispose()
   })
 
+  it('keeps the grid when a group it does not draw is toggled', async () => {
+    /*
+     * Showing or hiding any group invalidates that group, and a group the
+     * heatmap is not built from cannot have changed the grid, so redoing the
+     * binning would only spend a million annotations of work on the picture
+     * that is already on screen.
+     */
+    const { viewer, setFeatures } = buildViewer()
+    const controller = new HeatmapController({
+      viewer,
+      client: {
+        retrieveBulkData: async () => [Float32Array.from([10, 20]).buffer],
+      } as unknown as DicomWebManager,
+      settings: SETTINGS,
+      onStatusChange: () => {},
+    })
+
+    setFeatures([buildFeature('a', 0), buildFeature('a', 1)])
+    controller.update({ ...SETTINGS, annotationGroupUID: 'a' }, [])
+    await flush()
+    mockWorker.onmessage?.({
+      data: {
+        requestId: mockWorker.requests[0].requestId,
+        values: Float32Array.from([15]),
+        counts: Uint32Array.from([2]),
+        width: 1,
+        height: 1,
+        binSizeUnits: 1000,
+        minValue: 15,
+        maxValue: 15,
+        includedCount: 2,
+        durationMs: 1,
+      },
+    } as MessageEvent<unknown>)
+
+    controller.invalidateAnnotationGroup('b')
+    controller.update({ ...SETTINGS, annotationGroupUID: 'a' }, [])
+    await flush()
+    expect(mockWorker.requests).toHaveLength(1)
+    expect(controller.getStatus().grid).not.toBeNull()
+
+    /** The group it does draw, in contrast, has to be binned again. */
+    controller.invalidateAnnotationGroup('a')
+    controller.update({ ...SETTINGS, annotationGroupUID: 'a' }, [])
+    await flush()
+    expect(mockWorker.requests).toHaveLength(2)
+
+    controller.dispose()
+  })
+
   it('downloads a measurement once when the slider and the heatmap both want it', async () => {
     /*
      * Selecting a measurement bounds the filter slider and bins the values at
