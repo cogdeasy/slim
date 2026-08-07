@@ -193,7 +193,11 @@ describe('HeatmapMenu', () => {
 
   it('offers a measurement filter once the measurement range is known', () => {
     renderMenu({
-      settings: { metric: 'mean', measurement: MEASUREMENTS[0].name },
+      settings: {
+        isVisible: true,
+        metric: 'mean',
+        measurement: MEASUREMENTS[0].name,
+      },
       measurementRange: [0, 100],
     })
     expect(
@@ -203,8 +207,32 @@ describe('HeatmapMenu', () => {
     ).toBeInTheDocument()
   })
 
+  it('withdraws the measurement filter while the heatmap is hidden', () => {
+    /*
+     * Hiding the heatmap restores every annotation the filter hid, so the
+     * slider would promise something it cannot do until it is shown again.
+     */
+    renderMenu({
+      settings: {
+        isVisible: false,
+        metric: 'mean',
+        measurement: MEASUREMENTS[0].name,
+        filterRange: [10, 20],
+      },
+      measurementRange: [0, 100],
+    })
+    expect(
+      screen.queryByText(
+        'Measurement filter (hides annotations outside the range)',
+      ),
+    ).toBeNull()
+  })
+
   it('does not offer a measurement filter for the density metric', () => {
-    renderMenu({ settings: { metric: 'density' }, measurementRange: [0, 100] })
+    renderMenu({
+      settings: { isVisible: true, metric: 'density' },
+      measurementRange: [0, 100],
+    })
     expect(
       screen.queryByText(
         'Measurement filter (hides annotations outside the range)',

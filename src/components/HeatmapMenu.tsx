@@ -441,7 +441,13 @@ const HeatmapMenu: React.FC<HeatmapMenuProps> = ({
           </div>
         )}
 
-        {needsMeasurement &&
+        {/*
+         * Only while the heatmap is shown: hiding it restores every annotation
+         * the filter hid, so a slider promising to hide them would be lying.
+         * The range itself is kept, and applied again when the heatmap is.
+         */}
+        {settings.isVisible &&
+          needsMeasurement &&
           measurementRange !== null &&
           measurementRange[1] > measurementRange[0] && (
             <div>
