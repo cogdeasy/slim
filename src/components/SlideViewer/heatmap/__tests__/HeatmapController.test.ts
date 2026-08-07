@@ -725,6 +725,111 @@ describe('HeatmapController', () => {
     controller.dispose()
   })
 
+  it('keeps the positions of another group while one is still loading', async () => {
+    /*
+     * Re-extracting a group that is still growing overwrites its own cache
+     * entry rather than adding one, so making room for it would throw away
+     * the positions of the other group the cache can hold for nothing.
+     */
+    const { viewer, setFeatures } = buildViewer(null)
+    const extractedFeatures: Record<string, number> = { a: 0, b: 0 }
+    /**
+     * Build a feature that records having been read by an extraction.
+     *
+     * @param annotationGroupUID - Group the feature belongs to
+     * @param annotationIndex - DICOM annotation index of the feature
+     *
+     * @returns The counting feature
+     */
+    const buildCountingFeature = (
+      annotationGroupUID: string,
+      annotationIndex: number,
+    ): OlFeatureLike => ({
+      ...buildFeature(annotationGroupUID, annotationIndex),
+      getGeometry: () => {
+        extractedFeatures[annotationGroupUID] += 1
+        return {
+          getExtent: () => [annotationIndex, -1, annotationIndex, -1],
+        }
+      },
+    })
+    const controller = new HeatmapController({
+      viewer,
+      client: {
+        retrieveBulkData: async () => [Float32Array.from([10, 20]).buffer],
+      } as unknown as DicomWebManager,
+      settings: SETTINGS,
+      onStatusChange: () => {},
+    })
+
+    /** The first annotation of a group that is still loading. */
+    setFeatures([buildCountingFeature('a', 0)])
+    controller.update({ ...SETTINGS, annotationGroupUID: 'a' }, [])
+    await flush()
+
+    setFeatures([buildCountingFeature('b', 0), buildCountingFeature('b', 1)])
+    controller.update({ ...SETTINGS, annotationGroupUID: 'b' }, [])
+    await flush()
+    const extractedB = extractedFeatures.b
+
+    /** More of the first group has arrived, so it has to be read again. */
+    setFeatures([buildCountingFeature('a', 0), buildCountingFeature('a', 1)])
+    controller.update({ ...SETTINGS, annotationGroupUID: 'a' }, [])
+    await flush()
+
+    setFeatures([buildCountingFeature('b', 0), buildCountingFeature('b', 1)])
+    controller.update({ ...SETTINGS, annotationGroupUID: 'b' }, [])
+    await flush()
+    expect(extractedFeatures.b).toBe(extractedB)
+
+    controller.dispose()
+  })
+
+  it('keeps saying that a heatmap is incomplete while it still is', async () => {
+    /*
+     * A recompute that finds the grid on screen already correct publishes no
+     * response, so anything it does not republish stays cleared - and a
+     * partial heatmap that stops saying so as soon as a slider is touched
+     * invites conclusions to be drawn from missing annotations.
+     */
+    const { viewer, setFeatures } = buildViewer(2)
+    const controller = new HeatmapController({
+      viewer,
+      client: {
+        retrieveBulkData: async () => [Float32Array.from([10, 20]).buffer],
+      } as unknown as DicomWebManager,
+      settings: SETTINGS,
+      onStatusChange: () => {},
+    })
+
+    /** One of the two annotations the metadata documents has been loaded. */
+    setFeatures([buildFeature('a', 0)])
+    controller.update({ ...SETTINGS, annotationGroupUID: 'a' }, [])
+    await flush()
+    mockWorker.onmessage?.({
+      data: {
+        requestId: mockWorker.requests[0].requestId,
+        values: Float32Array.from([10]),
+        counts: Uint32Array.from([1]),
+        width: 1,
+        height: 1,
+        binSizeUnits: 1000,
+        minValue: 10,
+        maxValue: 10,
+        includedCount: 1,
+        durationMs: 1,
+      },
+    } as MessageEvent<unknown>)
+    expect(controller.getStatus().warning).toContain('may be incomplete')
+
+    controller.update({ ...SETTINGS, annotationGroupUID: 'a', opacity: 0.2 }, [])
+    await flush()
+    expect(mockWorker.requests).toHaveLength(1)
+    expect(controller.getStatus().warning).toContain('may be incomplete')
+
+    controller.dispose()
+  })
+
   it('does not ask the binner for a range it has no values for', async () => {
     /*
      * A range can only exclude an annotation whose value is known. Sending one

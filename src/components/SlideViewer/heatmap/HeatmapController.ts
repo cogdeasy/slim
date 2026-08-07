@@ -14,7 +14,6 @@ import {
   fetchMeasurementValues,
   findMeasurement,
   getExpectedAnnotationCount,
-  getSlideExtent,
   getValueRange,
   listMeasurements,
   type MeasurementDescriptor,
@@ -276,17 +275,6 @@ export class HeatmapController {
   }
 
   /**
-   * List the measurements of an annotation group.
-   *
-   * @param annotationGroupUID - Unique identifier of the annotation group
-   *
-   * @returns One descriptor per measurement
-   */
-  listMeasurementsOf(annotationGroupUID: string): MeasurementDescriptor[] {
-    return listMeasurementsOfGroup(this.viewer, annotationGroupUID)
-  }
-
-  /**
    * Get the range of a measurement across a whole annotation group, to bound
    * the filter slider.
    *
@@ -449,15 +437,6 @@ export class HeatmapController {
       this.debounceHandle = null
       void this.recompute(settings, rois)
     }, DEBOUNCE_MILLISECONDS)
-  }
-
-  /**
-   * Get the extent of the slide in projection units, exposed for diagnostics.
-   *
-   * @returns Extent `[minX, minY, maxX, maxY]`
-   */
-  getExtent(): [number, number, number, number] {
-    return getSlideExtent(this.viewer as unknown as ViewerLike)
   }
 
   /**
@@ -668,7 +647,16 @@ export class HeatmapController {
       this.lastBinnedInputs !== null &&
       sameBinningInputs(this.lastBinnedInputs, inputs)
     ) {
-      this.setStatus({ isComputing: false })
+      /*
+       * Republished rather than left as the recompute cleared it: the grid on
+       * screen is the one this recompute would have produced, so whatever is
+       * missing from it is still missing, and a partial heatmap that stops
+       * saying so as soon as a slider is touched is the worst of both.
+       */
+      this.setStatus({
+        isComputing: false,
+        warning: describeIncompleteness(positions),
+      })
       return
     }
 
@@ -817,8 +805,7 @@ export class HeatmapController {
       expectedCount: getExpectedAnnotationCount(this.getMetadata(uid), uid),
     })
     if (positions !== null && positions.count > 0) {
-      evictOldest(this.positionCache, MAX_CACHED_POSITIONS)
-      this.positionCache.set(uid, positions)
+      writeCache(this.positionCache, uid, positions, MAX_CACHED_POSITIONS)
     }
     return positions
   }
@@ -896,8 +883,12 @@ export class HeatmapController {
       annotationGroupUID,
       measurementIndex: descriptor.index,
     })
-    evictOldest(this.measurementCache, MAX_CACHED_MEASUREMENTS)
-    this.measurementCache.set(cacheKey, pending)
+    writeCache(
+      this.measurementCache,
+      cacheKey,
+      pending,
+      MAX_CACHED_MEASUREMENTS,
+    )
     try {
       return await pending
     } catch (error) {
@@ -1066,6 +1057,33 @@ function readCache<T>(cache: Map<string, T>, key: string): T | undefined {
   cache.delete(key)
   cache.set(key, value)
   return value
+}
+
+/**
+ * Write an entry to a cache as the most recently used one, evicting the least
+ * recently used entries until the cache respects its bound.
+ *
+ * @param cache - Cache to write to
+ * @param key - Key of the entry
+ * @param value - Entry to write
+ * @param maximumSize - Number of entries the cache may hold
+ */
+function writeCache<T>(
+  cache: Map<string, T>,
+  key: string,
+  value: T,
+  maximumSize: number,
+): void {
+  /*
+   * Overwriting an entry does not grow the cache, so evicting for it would
+   * throw away another group's positions for nothing - which is exactly what
+   * happens while a group is still loading and is re-extracted repeatedly.
+   */
+  if (!cache.has(key)) {
+    evictOldest(cache, maximumSize)
+  }
+  cache.delete(key)
+  cache.set(key, value)
 }
 
 /**
