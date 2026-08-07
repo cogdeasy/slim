@@ -5,6 +5,7 @@ declare module 'dicom-microscopy-viewer' {
   // skipcq: JS-C1003
   import * as dcmjs from 'dcmjs'
   import { CustomError } from '../../src/utils/CustomError'
+  import type OlMap from 'ol/Map'
 
   declare namespace viewer {
 
@@ -243,6 +244,18 @@ declare module 'dicom-microscopy-viewer' {
       getPaletteDisplayGammaCorrectionEnabled (): boolean;
       toggleSegmentationInterpolation (): void;
       toggleParametricMapInterpolation (): void;
+      /**
+       * OpenLayers map of the viewer. Note that it is built with the copy of
+       * OpenLayers that is bundled with the viewer, which is not the copy that
+       * Slim imports, so objects obtained from it must be duck typed.
+       */
+      getMap (): OlMap
+      /**
+       * Affine transformation matrix mapping OpenLayers projection
+       * coordinates (total pixel matrix pixels of the base level) to slide
+       * coordinates in millimeter.
+       */
+      getAffine (): number[][]
     }
 
     export interface OverviewImageViewerOptions {
@@ -847,6 +860,26 @@ declare module 'dicom-microscopy-viewer' {
       get applyDisplayGammaCorrection (): boolean
       setApplyDisplayGammaCorrection (enabled: boolean): void
     }
+  }
+
+  declare namespace utils {
+
+    /**
+     * Apply an affine transformation to a coordinate.
+     */
+    export function applyTransform (options: {
+      coordinate: number[]
+      affine: number[][]
+    }): number[]
+
+    /**
+     * Apply the inverse of an affine transformation to a coordinate.
+     */
+    export function applyInverseTransform (options: {
+      coordinate: number[]
+      affine: number[][]
+    }): number[]
+
   }
 
   declare namespace opticalPath {

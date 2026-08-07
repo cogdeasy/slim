@@ -61,6 +61,7 @@ import AnnotationGroupList from './AnnotationGroupList'
 import AnnotationList from './AnnotationList'
 import Btn from './Button'
 import Equipment from './Equipment'
+import HeatmapMenu from './HeatmapMenu'
 import HoveredRoiTooltip from './HoveredRoiTooltip'
 import MappingList from './MappingList'
 import OpticalPathList from './OpticalPathList'
@@ -75,6 +76,14 @@ import {
   DEFAULT_ROI_STROKE_COLOR,
   DEFAULT_ROI_STROKE_WIDTH,
 } from './SlideViewer/constants'
+import type { MeasurementDescriptor } from './SlideViewer/heatmap/annotationData'
+import { HeatmapController } from './SlideViewer/heatmap/HeatmapController'
+import { applySettingsPatch } from './SlideViewer/heatmap/settings'
+import {
+  DEFAULT_HEATMAP_SETTINGS,
+  type HeatmapSettings,
+  INITIAL_HEATMAP_STATUS,
+} from './SlideViewer/heatmap/types'
 import SlideViewerContent from './SlideViewer/SlideViewerContent'
 import SlideViewerModals from './SlideViewer/SlideViewerModals'
 import './SlideViewer/SettingsPanel.css'
@@ -123,6 +132,12 @@ class SlideViewer extends React.Component<SlideViewerProps, SlideViewerState> {
   private volumeViewer: dmv.viewer.VolumeImageViewer
 
   private labelViewer?: dmv.viewer.LabelImageViewer
+
+  /**
+   * Owns the annotation heatmap overlay. Created lazily on first use, so that
+   * slides without annotation groups pay nothing for the feature.
+   */
+  private heatmapController: HeatmapController | null = null
 
   private hoveredRois = [] as Array<{
     roi: dmv.roi.ROI
@@ -301,6 +316,10 @@ class SlideViewer extends React.Component<SlideViewerProps, SlideViewerState> {
       clusteringPixelSizeThreshold: null, // null means auto (zoom-based)
       isClusteringEnabled: true, // Clustering enabled by default
       isSettingsDrawerOpen: false,
+      heatmapSettings: { ...DEFAULT_HEATMAP_SETTINGS },
+      heatmapStatus: INITIAL_HEATMAP_STATUS,
+      heatmapMeasurementRange: null,
+      heatmapHoveredValue: null,
     }
 
     this.handlePointerMoveDebounced = debounce(this.handlePointerMoveEvent, 0, {
@@ -386,6 +405,8 @@ class SlideViewer extends React.Component<SlideViewerProps, SlideViewerState> {
       ) {
         this.volumeViewportRef.current.innerHTML = ''
       }
+      /** The heatmap layer belongs to the map that is being torn down. */
+      this.disposeHeatmapController()
       this.volumeViewer.cleanup()
       if (this.labelViewer !== null && this.labelViewer !== undefined) {
         if (
@@ -436,6 +457,10 @@ class SlideViewer extends React.Component<SlideViewerProps, SlideViewerState> {
         selectedSeriesInstanceUID: undefined,
         validXCoordinateRange: [offset[0], offset[0] + size[0]],
         validYCoordinateRange: [offset[1], offset[1] + size[1]],
+        heatmapSettings: { ...DEFAULT_HEATMAP_SETTINGS },
+        heatmapStatus: INITIAL_HEATMAP_STATUS,
+        heatmapMeasurementRange: null,
+        heatmapHoveredValue: null,
       })
       this.populateViewports()
     }
@@ -1864,6 +1889,8 @@ class SlideViewer extends React.Component<SlideViewerProps, SlideViewerState> {
     const { features: featuresWithROIs, event: evt } = event.detail.payload
     const originalEvent = evt.originalEvent
 
+    this.updateHeatmapHoverReadout(evt.coordinate)
+
     if (!this.isSamePixelAsLast(originalEvent)) {
       this.lastPixel = [originalEvent.clientX, originalEvent.clientY]
       this.clearHoveredRois()
@@ -2377,8 +2404,112 @@ class SlideViewer extends React.Component<SlideViewerProps, SlideViewerState> {
     }
   }
 
+  /**
+   * Read the heatmap bin under the cursor for the legend readout.
+   *
+   * Sampling is a couple of array lookups, so it rides along with the existing
+   * pointer move handler rather than adding a second listener.
+   *
+   * @param coordinate - Cursor position in OpenLayers projection coordinates
+   */
+  private updateHeatmapHoverReadout = (coordinate?: number[]): void => {
+    if (
+      this.heatmapController === null ||
+      !this.state.heatmapSettings.isVisible ||
+      coordinate === undefined
+    ) {
+      return
+    }
+    const heatmapHoveredValue = this.heatmapController.sampleAt(coordinate)
+    if (heatmapHoveredValue !== this.state.heatmapHoveredValue) {
+      this.setState({ heatmapHoveredValue })
+    }
+  }
+
+  /**
+   * Get the heatmap controller, creating it on first use.
+   *
+   * @returns The controller of the current volume viewer
+   */
+  private getHeatmapController = (): HeatmapController => {
+    if (this.heatmapController === null) {
+      this.heatmapController = new HeatmapController({
+        viewer: this.volumeViewer,
+        client:
+          this.props.clients[StorageClasses.MICROSCOPY_BULK_SIMPLE_ANNOTATION],
+        settings: this.state.heatmapSettings,
+        onStatusChange: (heatmapStatus) => this.setState({ heatmapStatus }),
+      })
+    }
+    return this.heatmapController
+  }
+
+  /**
+   * Tear down the heatmap controller, which removes its layer from the map,
+   * terminates its worker and restores any annotations it hid.
+   */
+  private disposeHeatmapController = (): void => {
+    this.heatmapController?.dispose()
+    this.heatmapController = null
+  }
+
+  /**
+   * Handle a change of the heatmap settings.
+   *
+   * @param patch - Settings the panel changed
+   */
+  handleHeatmapSettingsChange = (patch: Partial<HeatmapSettings>): void => {
+    this.setState(
+      (state) => ({
+        heatmapSettings: applySettingsPatch(state.heatmapSettings, patch),
+      }),
+      () => {
+        this.getHeatmapController().update(
+          this.state.heatmapSettings,
+          this.volumeViewer.getAllROIs(),
+        )
+        if (
+          patch.measurement !== undefined ||
+          patch.annotationGroupUID !== undefined ||
+          patch.sourceKind !== undefined
+        ) {
+          void this.refreshHeatmapMeasurementRange()
+        }
+      },
+    )
+  }
+
+  /**
+   * Load the full value range of the selected measurement, so that the filter
+   * slider has bounds that match the data.
+   */
+  private refreshHeatmapMeasurementRange = async (): Promise<void> => {
+    const { annotationGroupUID, measurement, sourceKind } =
+      this.state.heatmapSettings
+    if (
+      sourceKind !== 'annotationGroup' ||
+      annotationGroupUID === undefined ||
+      measurement === undefined
+    ) {
+      this.setState({ heatmapMeasurementRange: null })
+      return
+    }
+    try {
+      const heatmapMeasurementRange =
+        await this.getHeatmapController().getMeasurementRange(
+          annotationGroupUID,
+          measurement,
+        )
+      this.setState({ heatmapMeasurementRange })
+    } catch (error) {
+      logger.error('failed to determine measurement range', error)
+      this.setState({ heatmapMeasurementRange: null })
+    }
+  }
+
   componentWillUnmount = (): void => {
     ActiveSeriesService.clear()
+    this.disposeHeatmapController()
     this.volumeViewer.cleanup()
     if (this.labelViewer !== null && this.labelViewer !== undefined) {
       this.labelViewer.cleanup()
@@ -2920,6 +3051,8 @@ class SlideViewer extends React.Component<SlideViewerProps, SlideViewerState> {
         return { visibleAnnotationGroupUIDs }
       })
     }
+    /** The features the heatmap was extracted from have been rebuilt. */
+    this.heatmapController?.invalidateAnnotationGroup(annotationGroupUID)
   }
 
   /**
@@ -2939,6 +3072,8 @@ class SlideViewer extends React.Component<SlideViewerProps, SlideViewerState> {
     logger.log(`change style of annotation group ${uid}`)
     try {
       this.volumeViewer.setAnnotationGroupStyle(uid, styleOptions)
+      /** Changing the style rebuilds the layer styles the filter wraps. */
+      this.heatmapController?.reapplyAnnotationVisibilityFilter(uid)
     } catch (error) {
       // eslint-disable-next-line @typescript-eslint/no-floating-promises
       NotificationMiddleware.onError(
@@ -4254,6 +4389,45 @@ class SlideViewer extends React.Component<SlideViewerProps, SlideViewerState> {
     return undefined
   }
 
+  /**
+   * Build the sidebar sub-menu with the heatmap controls and legend.
+   *
+   * @param annotationGroups - Annotation groups of the slide
+   *
+   * @returns The sub-menu, or nothing when the slide has no annotation groups
+   */
+  private readonly getHeatmapMenu = (
+    annotationGroups: dmv.annotation.AnnotationGroup[],
+  ): React.ReactNode => {
+    if (annotationGroups.length === 0) {
+      return undefined
+    }
+    const { heatmapSettings } = this.state
+    let measurements: MeasurementDescriptor[] = []
+    if (heatmapSettings.annotationGroupUID !== undefined) {
+      try {
+        measurements = this.getHeatmapController().listMeasurementsOf(
+          heatmapSettings.annotationGroupUID,
+        )
+      } catch (error) {
+        logger.error('failed to list annotation group measurements', error)
+      }
+    }
+    return (
+      <Menu.SubMenu key="annotation-heatmap" title="Annotation Heatmap">
+        <HeatmapMenu
+          settings={heatmapSettings}
+          status={this.state.heatmapStatus}
+          annotationGroups={annotationGroups}
+          measurements={measurements}
+          measurementRange={this.state.heatmapMeasurementRange}
+          hoveredValue={this.state.heatmapHoveredValue}
+          onChange={this.handleHeatmapSettingsChange}
+        />
+      </Menu.SubMenu>
+    )
+  }
+
   private readonly getAnnotationGroupMenu = (
     annotationGroups: dmv.annotation.AnnotationGroup[],
   ): React.ReactNode => {
@@ -4817,6 +4991,7 @@ class SlideViewer extends React.Component<SlideViewerProps, SlideViewerState> {
     const segmentationMenu = this.getSegmentationMenu(segments)
     const parametricMapMenu = this.getParametricMapMenu(mappings)
     const annotationGroupMenu = this.getAnnotationGroupMenu(annotationGroups)
+    const heatmapMenu = this.getHeatmapMenu(annotationGroups)
     const { toolbar, toolbarHeight } = this.getToolbar()
     const cursor = this.getCursor()
     const selectedRoiInformation = this.getSelectedRoiInformation()
@@ -4909,6 +5084,7 @@ class SlideViewer extends React.Component<SlideViewerProps, SlideViewerState> {
           presentationStateMenu={presentationStateMenu}
           annotationMenuItems={annotationMenuItems}
           annotationGroupMenu={annotationGroupMenu}
+          heatmapMenu={heatmapMenu}
           segmentationMenu={segmentationMenu}
           parametricMapMenu={parametricMapMenu}
           annotations={annotations}
