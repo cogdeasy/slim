@@ -169,8 +169,20 @@ const HeatmapMenu: React.FC<HeatmapMenuProps> = ({
 }) => {
   const needsMeasurement = requiresMeasurement(settings.metric)
   const grid = status.grid
-  const clampLow = grid?.minValue ?? 0
-  const clampHigh = grid?.maxValue ?? 0
+  /*
+   * A grid can also change without a settings patch to drop the clamp with -
+   * annotations finishing loading rebins a wider range - so the bounds are
+   * the union of the range of the grid and the clamp chosen for the previous
+   * one, which keeps the handles inside the track until the user moves them.
+   */
+  const clampLow = Math.min(
+    grid?.minValue ?? 0,
+    settings.clampRange?.[0] ?? Number.POSITIVE_INFINITY,
+  )
+  const clampHigh = Math.max(
+    grid?.maxValue ?? 0,
+    settings.clampRange?.[1] ?? Number.NEGATIVE_INFINITY,
+  )
   /*
    * Whether the values admit a logarithmic scale is only known once a grid
    * exists, and refusing the toggle until then would stop the user from

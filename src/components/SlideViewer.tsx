@@ -1575,6 +1575,7 @@ class SlideViewer extends React.Component<SlideViewerProps, SlideViewerState> {
     this.setState((state) => ({
       visibleRoiUIDs: new Set(state.visibleRoiUIDs),
     }))
+    this.recomputeRoiHeatmap()
   }
 
   onWindowResize = (_event: Event): void => {
@@ -1617,6 +1618,7 @@ class SlideViewer extends React.Component<SlideViewerProps, SlideViewerState> {
         visibleRoiUIDs.add(roi.uid)
         return { visibleRoiUIDs }
       })
+      this.recomputeRoiHeatmap()
     } else {
       logger.debug(`could not add ROI "${roi.uid}"`)
     }
@@ -2298,6 +2300,7 @@ class SlideViewer extends React.Component<SlideViewerProps, SlideViewerState> {
   onRoiRemoved = (event: CustomEventInit): void => {
     const roi = event.detail.payload as dmv.roi.ROI
     logger.debug(`removed ROI "${roi.uid}"`)
+    this.recomputeRoiHeatmap()
   }
 
   componentCleanup = (): void => {
@@ -2493,6 +2496,21 @@ class SlideViewer extends React.Component<SlideViewerProps, SlideViewerState> {
   }
 
   /**
+   * Rerun the heatmap pipeline after the user has changed their own
+   * annotations.
+   *
+   * Only the regions of interest source is built from them, and a heatmap of
+   * another source would only be binned again to produce the same grid, so
+   * drawing stays free for everyone else.
+   */
+  private recomputeRoiHeatmap = (): void => {
+    if (this.state.heatmapSettings.sourceKind !== 'rois') {
+      return
+    }
+    this.recomputeHeatmap()
+  }
+
+  /**
    * Tear down the heatmap controller, which removes its layer from the map,
    * terminates its worker and restores any annotations it hid.
    */
@@ -2529,10 +2547,15 @@ class SlideViewer extends React.Component<SlideViewerProps, SlideViewerState> {
             this.volumeViewer.getAllROIs(),
           )
         }
+        /*
+         * Membership rather than value, as in `applySettingsPatch`: a patch
+         * that clears the group is as much a change of which measurement is
+         * selected as a patch that switches to another one.
+         */
         if (
           'measurement' in patch ||
-          patch.annotationGroupUID !== undefined ||
-          patch.sourceKind !== undefined
+          'annotationGroupUID' in patch ||
+          'sourceKind' in patch
         ) {
           void this.refreshHeatmapMeasurementRange()
         }

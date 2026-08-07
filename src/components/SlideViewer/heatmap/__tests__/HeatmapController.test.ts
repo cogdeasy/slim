@@ -56,6 +56,33 @@ jest.mock('../HeatmapLayer', () => ({
 }))
 
 /**
+ * Reason the main thread binner is to fail with, for the case of a worker that
+ * died of the binning rather than of a failure to start. `null` runs the real
+ * binner.
+ */
+let mockBinningFailure: string | null = null
+
+jest.mock('../binning', () => {
+  const actual = jest.requireActual('../binning')
+  return {
+    ...actual,
+    /**
+     * Bin as usual, unless the test asked for the binning to fail.
+     *
+     * @param request - Binning request
+     *
+     * @returns The binned grid
+     */
+    computeHeatmapGrid: (request: unknown) => {
+      if (mockBinningFailure !== null) {
+        throw new Error(mockBinningFailure)
+      }
+      return actual.computeHeatmapGrid(request)
+    },
+  }
+})
+
+/**
  * A stand-in for the binning worker that records the requests posted to it.
  */
 class FakeWorker {
@@ -240,6 +267,7 @@ describe('HeatmapController', () => {
   beforeEach(() => {
     jest.useFakeTimers()
     mockWorker = new FakeWorker()
+    mockBinningFailure = null
   })
 
   afterEach(() => {
@@ -658,6 +686,77 @@ describe('HeatmapController', () => {
     releaseFetch()
     await flush()
     expect(mockWorker.requests).toHaveLength(1)
+
+    controller.dispose()
+  })
+
+  it('reports a failure of the binning the dead worker left behind', async () => {
+    /*
+     * The fallback for a worker that dies is to bin on the main thread, which
+     * runs into the same defect when the worker died of the binning itself.
+     * An exception escaping the error handler would leave the panel computing
+     * for good.
+     */
+    const { viewer, setFeatures } = buildViewer()
+    const controller = new HeatmapController({
+      viewer,
+      client: {
+        retrieveBulkData: async () => [Float32Array.from([10, 20]).buffer],
+      } as unknown as DicomWebManager,
+      settings: SETTINGS,
+      onStatusChange: () => {},
+    })
+
+    setFeatures([buildFeature('a', 0), buildFeature('a', 1)])
+    controller.update({ ...SETTINGS, annotationGroupUID: 'a' }, [])
+    await flush()
+    expect(controller.getStatus().isComputing).toBe(true)
+
+    mockBinningFailure = 'out of memory'
+    expect(() => {
+      mockWorker.onerror?.({ message: 'worker died' } as ErrorEvent)
+    }).not.toThrow()
+
+    expect(controller.getStatus().isComputing).toBe(false)
+    expect(controller.getStatus().error).toBe(
+      'Could not compute the heatmap: out of memory',
+    )
+
+    controller.dispose()
+  })
+
+  it('does not ask the binner for a range it has no values for', async () => {
+    /*
+     * A range can only exclude an annotation whose value is known. Sending one
+     * without values would make the request, the binner and the annotations on
+     * the slide disagree about what the heatmap shows.
+     */
+    const { viewer, setFeatures } = buildViewer()
+    const controller = new HeatmapController({
+      viewer,
+      client: {
+        retrieveBulkData: async () => [Float32Array.from([10, 20]).buffer],
+      } as unknown as DicomWebManager,
+      settings: SETTINGS,
+      onStatusChange: () => {},
+    })
+
+    setFeatures([buildFeature('a', 0), buildFeature('a', 1)])
+    controller.update(
+      {
+        ...SETTINGS,
+        annotationGroupUID: 'a',
+        metric: 'density',
+        measurement: undefined,
+        filterRange: [0, 15],
+      },
+      [],
+    )
+    await flush()
+
+    expect(mockWorker.requests).toHaveLength(1)
+    expect(mockWorker.requests[0].values).toBeUndefined()
+    expect(mockWorker.requests[0].filterRange).toBeUndefined()
 
     controller.dispose()
   })

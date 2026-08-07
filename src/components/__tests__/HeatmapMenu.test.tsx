@@ -199,6 +199,26 @@ describe('HeatmapMenu', () => {
     ).toBeNull()
   })
 
+  it('keeps the clamp inside the slider when the grid moved under it', () => {
+    /*
+     * A grid can widen without a settings patch to drop the clamp with, when
+     * annotations finish loading, and a handle outside the track it is drawn
+     * on cannot be moved back.
+     */
+    renderMenu({
+      settings: { clampRange: [1, 40] },
+      status: { grid: GRID, annotationCount: 3 },
+    })
+    const handle = screen
+      .getAllByRole('slider')
+      .find((element) => element.getAttribute('aria-valuenow') === '40')
+    expect(handle).toBeDefined()
+    expect(
+      Number(handle?.getAttribute('aria-valuemax')),
+    ).toBeGreaterThanOrEqual(40)
+    expect(screen.getByTestId('heatmap-legend')).toHaveTextContent('40.00')
+  })
+
   it('surfaces errors and warnings', () => {
     renderMenu({
       status: { error: 'Select an annotation group.', warning: 'Incomplete.' },

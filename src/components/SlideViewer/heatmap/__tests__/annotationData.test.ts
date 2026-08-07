@@ -513,6 +513,78 @@ describe('setAnnotationVisibilityFilter', () => {
     }
     expect(styleOf(feature)).toBe('base-style')
   })
+
+  it('wraps a clustered layer through the source the cluster wraps', () => {
+    /*
+     * The features of a cluster source are cluster features, which carry
+     * their members rather than a group of their own, so the layer can only
+     * be recognized by the point source underneath.
+     */
+    const member = buildFeature({ id: `${GROUP_UID}-1` })
+    const cluster = {
+      getId: () => undefined,
+      get: (key: string) => (key === 'features' ? [member] : undefined),
+      getGeometry: () => ({ getExtent: () => [0, 0, 0, 0] }),
+    }
+    let style: unknown = 'base-style'
+    const layer: OlVectorLayerLike = {
+      getSource: () => ({
+        getFeatures: () => [cluster],
+        getSource: () => ({ getFeatures: () => [member] }),
+      }),
+      getStyle: () => style,
+      setStyle: (next: unknown) => {
+        style = next
+      },
+    }
+    setAnnotationVisibilityFilter({
+      viewer: buildViewer([layer]),
+      annotationGroupUID: GROUP_UID,
+      allowed: Uint8Array.from([1, 0]),
+    })
+    expect(typeof style).toBe('function')
+    expect(
+      (style as (f: OlFeatureLike, r: number) => unknown)(cluster, 1),
+    ).toBeUndefined()
+  })
+
+  it('wraps a layer that was still empty when the filter was applied', () => {
+    /*
+     * DMV loads the high resolution features of a group only once the user
+     * zooms in far enough to need them, so the layer holding them can be
+     * empty - and therefore unrecognizable - when the filter is first
+     * applied. Reapplying it once they have arrived is what the recompute on
+     * the end of a load is for.
+     */
+    const hidden = buildFeature({ id: `${GROUP_UID}-1` })
+    let features: OlFeatureLike[] = []
+    let style: unknown = 'base-style'
+    const layer: OlVectorLayerLike = {
+      getSource: () => ({ getFeatures: () => features }),
+      getStyle: () => style,
+      setStyle: (next: unknown) => {
+        style = next
+      },
+    }
+    const viewer = buildViewer([layer])
+    const allowed = Uint8Array.from([1, 0])
+    setAnnotationVisibilityFilter({
+      viewer,
+      annotationGroupUID: GROUP_UID,
+      allowed,
+    })
+    expect(style).toBe('base-style')
+
+    features = [hidden]
+    setAnnotationVisibilityFilter({
+      viewer,
+      annotationGroupUID: GROUP_UID,
+      allowed,
+    })
+    expect(
+      (style as (f: OlFeatureLike, r: number) => unknown)(hidden, 1),
+    ).toBeUndefined()
+  })
 })
 
 describe('decodeBulkDataValues', () => {

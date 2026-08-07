@@ -175,10 +175,21 @@ export class HeatmapController {
         /*
          * A request that was in flight when the worker died will never be
          * answered, so redo it here rather than leaving the panel computing.
+         * If the worker died of the binning itself rather than of a failure to
+         * start, redoing it throws the same way, and an exception escaping an
+         * event handler is what would leave the panel computing forever.
          */
         const request = this.pendingRequest
         if (request !== null) {
-          this.handleBinningResponse(computeHeatmapGrid(request))
+          try {
+            this.handleBinningResponse(computeHeatmapGrid(request))
+          } catch (error) {
+            this.failWith(
+              `Could not compute the heatmap: ${
+                error instanceof Error ? error.message : String(error)
+              }`,
+            )
+          }
         }
       }
     } catch (error) {
@@ -624,6 +635,14 @@ export class HeatmapController {
 
     this.applyAnnotationVisibilityFilter(settings, positions, values)
 
+    /*
+     * A range can only exclude an annotation whose value is known, so without
+     * values it is dropped here rather than carried into a request that the
+     * binner would ignore and into inputs that would not describe the grid it
+     * produces.
+     */
+    const filterRange = values === undefined ? undefined : settings.filterRange
+
     const millimeterPerUnit = getMillimeterPerUnit(this.viewer)
     const binSizeUnits =
       settings.binSizeMicrometer / 1000 / Math.max(millimeterPerUnit.x, 1e-9)
@@ -634,8 +653,8 @@ export class HeatmapController {
       metric: settings.metric,
       binSizeUnits,
       smoothingSigmaBins: settings.smoothingSigmaBins,
-      filterLow: settings.filterRange?.[0] ?? null,
-      filterHigh: settings.filterRange?.[1] ?? null,
+      filterLow: filterRange?.[0] ?? null,
+      filterHigh: filterRange?.[1] ?? null,
     }
     /*
      * Most recomputes are not asked for by a change of what is binned: the
@@ -674,7 +693,7 @@ export class HeatmapController {
       extent: positions.extent,
       binSizeUnits,
       smoothingSigmaBins: settings.smoothingSigmaBins,
-      filterRange: settings.filterRange,
+      filterRange,
     }
     this.pendingRequest = request
 
