@@ -402,6 +402,14 @@ export class HeatmapController {
     if (this.isDisposed) {
       return
     }
+    /*
+     * Before the debounce rather than in the recompute it schedules, so that a
+     * recompute suspended in a fetch is abandoned the moment the settings it
+     * was started for stop being the settings on screen. Waiting until the
+     * recompute runs leaves it 150 ms in which a fetch can resolve and hide
+     * annotations by a filter range the user has already moved away from.
+     */
+    this.generation += 1
     this.layer.setRenderOptions({
       colormap: settings.colormap,
       opacity: settings.opacity,
@@ -415,7 +423,6 @@ export class HeatmapController {
     }
     if (!settings.isVisible) {
       /** Hiding the heatmap must not leave annotations hidden with it. */
-      this.generation += 1
       this.pendingRequestId = null
       this.pendingRequest = null
       this.pendingContext = null

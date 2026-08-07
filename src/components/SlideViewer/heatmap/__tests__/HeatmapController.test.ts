@@ -254,6 +254,16 @@ const SETTINGS: HeatmapSettings = {
 }
 
 /**
+ * Let everything already resolved run to completion, without letting the
+ * debounce elapse.
+ */
+async function drainMicrotasks(): Promise<void> {
+  for (let i = 0; i < 50; i++) {
+    await Promise.resolve()
+  }
+}
+
+/**
  * Run the debounced recompute and let its promise settle.
  */
 async function flush(): Promise<void> {
@@ -678,6 +688,56 @@ describe('HeatmapController', () => {
       },
     } as MessageEvent<unknown>)
     expect(controller.getStatus().grid?.values[0]).toBe(15)
+
+    controller.dispose()
+  })
+
+  it('abandons a recompute the moment its settings stop being current', async () => {
+    /*
+     * A recompute waiting on the measurement values is holding a filter range
+     * the user may already have dragged past, and it hides annotations by that
+     * range as soon as the fetch lands. Being superseded has to count from the
+     * change of settings rather than from the recompute the change schedules,
+     * which is 150 ms of debounce later.
+     */
+    const { viewer, setFeatures, getStyle } = buildViewer()
+    let release: () => void = () => {}
+    const values = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const controller = new HeatmapController({
+      viewer,
+      client: {
+        retrieveBulkData: async () => {
+          await values
+          return [Float32Array.from([10, 20]).buffer]
+        },
+      } as unknown as DicomWebManager,
+      settings: SETTINGS,
+      onStatusChange: () => {},
+    })
+
+    setFeatures([buildFeature('a', 0), buildFeature('a', 1)])
+    controller.update(
+      { ...SETTINGS, annotationGroupUID: 'a', filterRange: [15, 25] },
+      [],
+    )
+    await flush()
+
+    /** The user drags the filter on before the values have arrived. */
+    controller.update(
+      { ...SETTINGS, annotationGroupUID: 'a', filterRange: [0, 25] },
+      [],
+    )
+    release()
+    await drainMicrotasks()
+    expect(mockWorker.requests).toHaveLength(0)
+    /** Nothing hidden by a range the panel no longer shows. */
+    expect(getStyle()).toBe(BASE_STYLE)
+
+    await flush()
+    expect(mockWorker.requests).toHaveLength(1)
+    expect(mockWorker.requests[0].filterRange).toEqual([0, 25])
 
     controller.dispose()
   })
