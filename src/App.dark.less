@@ -5,6 +5,11 @@
 
 @card-background: transparent;
 
+// Exposed to plain-CSS stylesheets that cannot read Less variables.
+:root {
+  --slim-section-divider: fade(@primary-color, 50%);
+}
+
 .ant-layout-header {
   color: white
 }
@@ -30,8 +35,8 @@
 
 .ant-collapse-header {
   font-weight: 600;
-  border-top: 1px solid rgba(11, 94, 215, 0.5);
-  border-bottom: 1px solid rgba(11, 94, 215, 0.5);
+  border-top: 1px solid fade(@primary-color, 50%);
+  border-bottom: 1px solid fade(@primary-color, 50%);
 }
 
 .ant-collapse-item + .ant-collapse-item .ant-collapse-header {
@@ -40,10 +45,10 @@
 
 .ant-menu-submenu-title {
   font-size: 'medium';
-  background-color: rgba(11, 94, 215, 0.25);
+  background-color: fade(@primary-color, 25%);
   font-weight: 600;
-  border-top: 1px solid rgba(11, 94, 215, 0.5);
-  border-bottom: 1px solid rgba(11, 94, 215, 0.5);
+  border-top: 1px solid fade(@primary-color, 50%);
+  border-bottom: 1px solid fade(@primary-color, 50%);
 }
 
 .ant-menu-submenu + .ant-menu-submenu .ant-menu-submenu-title {
@@ -57,7 +62,7 @@
 
 /* Settings drawer header border - matches section dividers (darker for contrast) */
 .slim-settings-drawer .ant-drawer-header {
-  border-bottom: 1px solid rgba(11, 94, 215, 0.5);
+  border-bottom: 1px solid fade(@primary-color, 50%);
 }
 
 /* Remove gap between submenu header and list content */
