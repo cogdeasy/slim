@@ -143,6 +143,9 @@ class SlideViewer extends React.Component<SlideViewerProps, SlideViewerState> {
    */
   private heatmapController: HeatmapController | null = null
 
+  /** Identifies the measurement range lookup whose result is still wanted. */
+  private heatmapMeasurementRangeRequestId = 0
+
   private hoveredRois = [] as Array<{
     roi: dmv.roi.ROI
     annotationGroupUID: string | null
@@ -2169,6 +2172,12 @@ class SlideViewer extends React.Component<SlideViewerProps, SlideViewerState> {
 
   onLoadingEnded = (_event: CustomEventInit): void => {
     this.setState({ isLoading: false })
+    /*
+     * DMV materializes the annotations of a group progressively and publishes
+     * this event when it is done, so anything the heatmap extracted before now
+     * was a snapshot of a group that was still growing.
+     */
+    this.recomputeHeatmap()
   }
 
   onFrameLoadingStarted = (event: CustomEventInit): void => {
@@ -2449,6 +2458,27 @@ class SlideViewer extends React.Component<SlideViewerProps, SlideViewerState> {
   }
 
   /**
+   * Rerun the heatmap pipeline against the current state of the slide.
+   *
+   * For changes made outside the heatmap panel that the pipeline has to follow
+   * rather than cause: annotations finishing loading, or a group being hidden
+   * or shown. Does nothing while the heatmap is off, so that such changes stay
+   * free for everyone who is not using it.
+   */
+  private recomputeHeatmap = (): void => {
+    if (
+      this.heatmapController === null ||
+      !this.state.heatmapSettings.isVisible
+    ) {
+      return
+    }
+    this.heatmapController.update(
+      this.state.heatmapSettings,
+      this.volumeViewer.getAllROIs(),
+    )
+  }
+
+  /**
    * Tear down the heatmap controller, which removes its layer from the map,
    * terminates its worker and restores any annotations it hid.
    */
@@ -2501,6 +2531,13 @@ class SlideViewer extends React.Component<SlideViewerProps, SlideViewerState> {
    * slider has bounds that match the data.
    */
   private refreshHeatmapMeasurementRange = async (): Promise<void> => {
+    /*
+     * Fetching the values of a measurement takes as long as the network does,
+     * so two lookups can land out of order and leave the slider bounded by a
+     * measurement the user has already moved away from.
+     */
+    this.heatmapMeasurementRangeRequestId += 1
+    const requestId = this.heatmapMeasurementRangeRequestId
     const { annotationGroupUID, measurement, sourceKind } =
       this.state.heatmapSettings
     if (
@@ -2512,15 +2549,33 @@ class SlideViewer extends React.Component<SlideViewerProps, SlideViewerState> {
       return
     }
     try {
-      const heatmapMeasurementRange = await getMeasurementRangeOfGroup({
-        viewer: this.volumeViewer,
-        client:
-          this.props.clients[StorageClasses.MICROSCOPY_BULK_SIMPLE_ANNOTATION],
-        annotationGroupUID,
-        measurement,
-      })
+      /*
+       * Through the controller when there is one: it caches the values, which
+       * the recompute this lookup races with needs as well.
+       */
+      const heatmapMeasurementRange =
+        this.heatmapController !== null
+          ? await this.heatmapController.getMeasurementRange(
+              annotationGroupUID,
+              measurement,
+            )
+          : await getMeasurementRangeOfGroup({
+              viewer: this.volumeViewer,
+              client:
+                this.props.clients[
+                  StorageClasses.MICROSCOPY_BULK_SIMPLE_ANNOTATION
+                ],
+              annotationGroupUID,
+              measurement,
+            })
+      if (requestId !== this.heatmapMeasurementRangeRequestId) {
+        return
+      }
       this.setState({ heatmapMeasurementRange })
     } catch (error) {
+      if (requestId !== this.heatmapMeasurementRangeRequestId) {
+        return
+      }
       logger.error('failed to determine measurement range', error)
       this.setState({ heatmapMeasurementRange: null })
     }
@@ -3070,8 +3125,16 @@ class SlideViewer extends React.Component<SlideViewerProps, SlideViewerState> {
         return { visibleAnnotationGroupUIDs }
       })
     }
-    /** The features the heatmap was extracted from have been rebuilt. */
+    /*
+     * The features the heatmap was extracted from have been rebuilt, and with
+     * them the styles its filter wrapped. Recomputing rather than only
+     * invalidating: dropping the filter without replacing it would put every
+     * annotation back on the slide while the panel still shows a restricted
+     * filter range. A group that has just been shown is still loading, so this
+     * recompute reports that and the one on `loading_ended` fills it in.
+     */
     this.heatmapController?.invalidateAnnotationGroup(annotationGroupUID)
+    this.recomputeHeatmap()
   }
 
   /**
@@ -3856,6 +3919,12 @@ class SlideViewer extends React.Component<SlideViewerProps, SlideViewerState> {
           ).setAnnotationOptions({
             clusteringPixelSizeThreshold: threshold,
           })
+          /*
+           * Clustering swaps which of a group's two layers is shown, and the
+           * filter only wrapped the styles of the layers that held features
+           * when it was applied.
+           */
+          this.heatmapController?.refreshAnnotationVisibilityFilter()
         } catch (error) {
           console.error('Failed to update annotation options:', error)
         }
@@ -3878,6 +3947,8 @@ class SlideViewer extends React.Component<SlideViewerProps, SlideViewerState> {
       ).setAnnotationOptions?.({
         clusteringPixelSizeThreshold: value ?? undefined,
       })
+      /** As above: the layer the group is drawn on may just have changed. */
+      this.heatmapController?.refreshAnnotationVisibilityFilter()
     }
   }
 

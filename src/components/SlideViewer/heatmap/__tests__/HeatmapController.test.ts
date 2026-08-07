@@ -270,6 +270,100 @@ describe('HeatmapController', () => {
     controller.dispose()
   })
 
+  it('re-extracts a group that was still loading when it was first read', async () => {
+    /*
+     * DMV materializes a large group progressively, so an extraction can be a
+     * snapshot of a group that is still growing. Caching it would freeze the
+     * heatmap on the partial data for as long as the group stays visible.
+     */
+    const { viewer, setFeatures } = buildViewer()
+    const controller = new HeatmapController({
+      viewer,
+      client: {
+        retrieveBulkData: async () => [Float32Array.from([10, 20]).buffer],
+      } as unknown as DicomWebManager,
+      settings: SETTINGS,
+      onStatusChange: () => {},
+    })
+
+    /** One of the two annotations the metadata documents has arrived. */
+    setFeatures([buildFeature('a', 0)])
+    controller.update({ ...SETTINGS, annotationGroupUID: 'a' }, [])
+    await flush()
+    expect(mockWorker.requests[0].xy).toHaveLength(2)
+
+    setFeatures([buildFeature('a', 0), buildFeature('a', 1)])
+    controller.update({ ...SETTINGS, annotationGroupUID: 'a' }, [])
+    await flush()
+    expect(mockWorker.requests[1].xy).toHaveLength(4)
+
+    /** A complete extraction, in contrast, is answered from the cache. */
+    setFeatures([])
+    controller.update({ ...SETTINGS, annotationGroupUID: 'a' }, [])
+    await flush()
+    expect(mockWorker.requests[2].xy).toHaveLength(4)
+
+    controller.dispose()
+  })
+
+  it('bounds the filter slider without downloading the values again', async () => {
+    const { viewer, setFeatures } = buildViewer()
+    const retrieveBulkData = jest.fn(async () => [
+      Float32Array.from([10, 20]).buffer,
+    ])
+    const controller = new HeatmapController({
+      viewer,
+      client: { retrieveBulkData } as unknown as DicomWebManager,
+      settings: SETTINGS,
+      onStatusChange: () => {},
+    })
+
+    setFeatures([buildFeature('a', 0), buildFeature('a', 1)])
+    controller.update({ ...SETTINGS, annotationGroupUID: 'a' }, [])
+    await flush()
+
+    expect(await controller.getMeasurementRange('a', AREA)).toEqual([10, 20])
+    expect(retrieveBulkData).toHaveBeenCalledTimes(1)
+
+    controller.dispose()
+  })
+
+  it('drops the grid along with the overlay when the heatmap is hidden', async () => {
+    const { viewer, setFeatures } = buildViewer()
+    const controller = new HeatmapController({
+      viewer,
+      client: {
+        retrieveBulkData: async () => [Float32Array.from([10, 20]).buffer],
+      } as unknown as DicomWebManager,
+      settings: SETTINGS,
+      onStatusChange: () => {},
+    })
+
+    setFeatures([buildFeature('a', 0), buildFeature('a', 1)])
+    controller.update({ ...SETTINGS, annotationGroupUID: 'a' }, [])
+    await flush()
+    mockWorker.onmessage?.({
+      data: {
+        requestId: mockWorker.requests[0].requestId,
+        values: Float32Array.from([15]),
+        counts: Uint32Array.from([2]),
+        width: 1,
+        height: 1,
+        binSizeUnits: 1000,
+        minValue: 15,
+        maxValue: 15,
+        includedCount: 2,
+        durationMs: 1,
+      },
+    } as MessageEvent<unknown>)
+    expect(controller.getStatus().grid).not.toBeNull()
+
+    controller.update({ ...SETTINGS, annotationGroupUID: 'a', isVisible: false }, [])
+    expect(controller.getStatus().grid).toBeNull()
+
+    controller.dispose()
+  })
+
   it('abandons a recompute that a newer one has overtaken', async () => {
     /*
      * Fetching measurements is an unbounded await, so a recompute can be

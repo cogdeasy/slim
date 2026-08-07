@@ -250,12 +250,28 @@ export class HeatmapController {
     annotationGroupUID: string,
     measurement: { CodeValue: string; CodingSchemeDesignator: string },
   ): Promise<[number, number] | null> {
-    return await getMeasurementRangeOfGroup({
-      viewer: this.viewer,
-      client: this.client,
+    const metadata = this.getMetadata(annotationGroupUID)
+    const descriptor = findMeasurement({
+      metadata,
       annotationGroupUID,
       measurement,
     })
+    if (descriptor === undefined) {
+      return null
+    }
+    /*
+     * Through the cache rather than through `getMeasurementRangeOfGroup`:
+     * selecting a measurement asks for its range and bins it, and the values
+     * are one number per annotation, so the free function would download the
+     * same few megabytes a second time.
+     */
+    return getValueRange(
+      await this.getRawMeasurementValues({
+        annotationGroupUID,
+        metadata,
+        descriptor,
+      }),
+    )
   }
 
   /**
@@ -281,6 +297,20 @@ export class HeatmapController {
       if (key.startsWith(`${annotationGroupUID}::`)) {
         this.measurementCache.delete(key)
       }
+    }
+  }
+
+  /**
+   * Reapply the visibility filter to whichever group it currently hides
+   * annotations of, if any.
+   *
+   * For changes that can move a group onto layers the filter has not wrapped,
+   * such as switching clustering on or off, where the caller does not know
+   * which group is filtered.
+   */
+  refreshAnnotationVisibilityFilter(): void {
+    if (this.filteredAnnotationGroupUID !== null) {
+      this.reapplyAnnotationVisibilityFilter(this.filteredAnnotationGroupUID)
     }
   }
 
@@ -337,8 +367,20 @@ export class HeatmapController {
       this.generation += 1
       this.pendingRequestId = null
       this.pendingRequest = null
+      this.pendingContext = null
       this.clearAnnotationVisibilityFilter()
-      this.setStatus({ isComputing: false })
+      this.layer.setGrid(null)
+      /*
+       * The grid goes with the overlay: a legend describing bins nobody can
+       * see is worse than no legend. Showing the heatmap again recomputes it.
+       */
+      this.setStatus({
+        isComputing: false,
+        grid: null,
+        timings: null,
+        error: null,
+        warning: null,
+      })
       return
     }
     this.debounceHandle = setTimeout(() => {
@@ -453,7 +495,8 @@ export class HeatmapController {
       this.failWith(
         settings.sourceKind === 'annotationGroup'
           ? 'No annotations have been loaded yet. Make the annotation group ' +
-              'visible under Annotation Groups first.'
+              'visible under Annotation Groups; a large group takes a while ' +
+              'to load and the heatmap follows once it has.'
           : 'There are no regions of interest on this slide.',
       )
       return
@@ -574,7 +617,10 @@ export class HeatmapController {
     if (context === null) {
       return
     }
+    /** A request is answered once, whichever binner got there first. */
+    this.pendingRequestId = null
     this.pendingRequest = null
+    this.pendingContext = null
     const grid: HeatmapGrid = {
       values: response.values,
       counts: response.counts,
@@ -628,7 +674,7 @@ export class HeatmapController {
     if (uid === undefined) {
       return null
     }
-    const cached = this.positionCache.get(uid)
+    const cached = readCache(this.positionCache, uid)
     if (cached !== undefined) {
       return cached
     }
@@ -637,12 +683,15 @@ export class HeatmapController {
       annotationGroupUID: uid,
       expectedCount: getExpectedAnnotationCount(this.getMetadata(uid), uid),
     })
-    if (positions !== null && positions.count > 0) {
-      /*
-       * An empty extraction means the group is still streaming in rather than
-       * that it is empty, so caching it would make every retry fail until the
-       * group is toggled.
-       */
+    /*
+     * Only a complete extraction is worth remembering. DMV materializes a
+     * large group progressively, so an extraction taken too early is a
+     * snapshot of a group that is still growing; caching it would freeze the
+     * heatmap on the partial data until the group is toggled off and on.
+     * Re-extracting costs a walk over the features, which is the price of the
+     * heatmap becoming complete on its own.
+     */
+    if (positions !== null && isComplete(positions)) {
       evictOldest(this.positionCache, MAX_CACHED_POSITIONS)
       this.positionCache.set(uid, positions)
     }
@@ -677,24 +726,54 @@ export class HeatmapController {
     if (descriptor === undefined) {
       return undefined
     }
-    const cacheKey = `${uid}::${descriptor.key}`
-    let raw = this.measurementCache.get(cacheKey)
-    if (raw === undefined) {
-      raw = await fetchMeasurementValues({
-        client: this.client,
-        metadata,
-        annotationGroupUID: uid,
-        measurementIndex: descriptor.index,
-      })
-      evictOldest(this.measurementCache, MAX_CACHED_MEASUREMENTS)
-      this.measurementCache.set(cacheKey, raw)
-    }
+    const raw = await this.getRawMeasurementValues({
+      annotationGroupUID: uid,
+      metadata,
+      descriptor,
+    })
     /*
      * Aligning on every recompute rather than caching the aligned array: the
      * gather is a few milliseconds even for a million annotations, and it is
      * the only way to guarantee that the values match the positions in hand.
      */
     return alignMeasurementValues({ positions, values: raw })
+  }
+
+  /**
+   * Get the values of one measurement as fetched, indexed by DICOM annotation
+   * index, from the cache when possible.
+   *
+   * @param options - Options
+   * @param options.annotationGroupUID - Unique identifier of the annotation
+   * group
+   * @param options.metadata - Metadata of the annotation instance
+   * @param options.descriptor - Descriptor of the measurement
+   *
+   * @returns The values
+   */
+  private async getRawMeasurementValues({
+    annotationGroupUID,
+    metadata,
+    descriptor,
+  }: {
+    annotationGroupUID: string
+    metadata: AnnotationsMetadataLike
+    descriptor: MeasurementDescriptor
+  }): Promise<Float32Array> {
+    const cacheKey = `${annotationGroupUID}::${descriptor.key}`
+    const cached = readCache(this.measurementCache, cacheKey)
+    if (cached !== undefined) {
+      return cached
+    }
+    const raw = await fetchMeasurementValues({
+      client: this.client,
+      metadata,
+      annotationGroupUID,
+      measurementIndex: descriptor.index,
+    })
+    evictOldest(this.measurementCache, MAX_CACHED_MEASUREMENTS)
+    this.measurementCache.set(cacheKey, raw)
+    return raw
   }
 
   /**
@@ -855,8 +934,46 @@ function describeIncompleteness(positions: AnnotationPositions): string | null {
 }
 
 /**
- * Evict the least recently inserted entries of a cache until it can hold one
- * more entry without exceeding its bound.
+ * Read an entry of a cache, marking it as the most recently used.
+ *
+ * @param cache - Cache to read
+ * @param key - Key of the entry
+ *
+ * @returns The entry, or `undefined` when the cache does not hold it
+ */
+function readCache<T>(cache: Map<string, T>, key: string): T | undefined {
+  const value = cache.get(key)
+  if (value === undefined) {
+    return undefined
+  }
+  /*
+   * Re-insertion moves the entry to the back of the insertion order that
+   * `evictOldest` walks, which is what makes the eviction least-recently-used
+   * rather than first-in-first-out.
+   */
+  cache.delete(key)
+  cache.set(key, value)
+  return value
+}
+
+/**
+ * Determine whether an extraction covers the whole annotation group.
+ *
+ * @param positions - Extracted positions
+ *
+ * @returns Whether every annotation the group documents was extracted
+ */
+function isComplete(positions: AnnotationPositions): boolean {
+  return (
+    positions.count > 0 &&
+    (positions.expectedCount === null ||
+      positions.count >= positions.expectedCount)
+  )
+}
+
+/**
+ * Evict the least recently used entries of a cache until it can hold one more
+ * entry without exceeding its bound.
  *
  * @param cache - Cache to bound
  * @param maximumSize - Number of entries the cache may hold
