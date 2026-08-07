@@ -404,13 +404,21 @@ const HeatmapMenu: React.FC<HeatmapMenuProps> = ({
                   : 'A logarithmic scale needs a strictly positive value range.'
               }
             >
-              <Switch
-                size="small"
-                aria-label="Log scale"
-                disabled={!canUseLogScale}
-                checked={settings.useLogScale && canUseLogScale}
-                onChange={(checked) => onChange({ useLogScale: checked })}
-              />
+              {/*
+               * The tooltip explains a disabled switch, and a disabled button
+               * receives no pointer events, so the hover has to be caught by
+               * something around it.
+               */}
+              <span style={{ display: 'inline-block' }}>
+                <Switch
+                  size="small"
+                  aria-label="Log scale"
+                  disabled={!canUseLogScale}
+                  checked={settings.useLogScale && canUseLogScale}
+                  onChange={(checked) => onChange({ useLogScale: checked })}
+                  style={canUseLogScale ? undefined : { pointerEvents: 'none' }}
+                />
+              </span>
             </Tooltip>
           </Col>
         </Row>

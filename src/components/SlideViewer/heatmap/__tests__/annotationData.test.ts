@@ -585,6 +585,40 @@ describe('setAnnotationVisibilityFilter', () => {
       (style as (f: OlFeatureLike, r: number) => unknown)(hidden, 1),
     ).toBeUndefined()
   })
+
+  it('clears a layer that emptied while the filter was applied', () => {
+    /*
+     * A layer whose source has emptied is no longer recognizable as belonging
+     * to the group, so a clear that only looked at the map would walk past it
+     * and leave a wrapper hiding its annotations against a mask no control
+     * can reach any more.
+     */
+    const hidden = buildFeature({ id: `${GROUP_UID}-1` })
+    let features: OlFeatureLike[] = [hidden]
+    let style: unknown = 'base-style'
+    const layer: OlVectorLayerLike = {
+      getSource: () => ({ getFeatures: () => features }),
+      getStyle: () => style,
+      setStyle: (next: unknown) => {
+        style = next
+      },
+    }
+    const viewer = buildViewer([layer])
+    setAnnotationVisibilityFilter({
+      viewer,
+      annotationGroupUID: GROUP_UID,
+      allowed: Uint8Array.from([1, 0]),
+    })
+    features = []
+    setAnnotationVisibilityFilter({
+      viewer,
+      annotationGroupUID: GROUP_UID,
+      allowed: null,
+    })
+
+    features = [hidden]
+    expect(style).toBe('base-style')
+  })
 })
 
 describe('decodeBulkDataValues', () => {

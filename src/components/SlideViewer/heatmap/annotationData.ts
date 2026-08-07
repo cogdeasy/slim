@@ -166,6 +166,22 @@ const baseStyles = new WeakMap<object, unknown>()
 const filterStyles = new WeakSet<object>()
 
 /**
+ * Layers this module has wrapped, per annotation group.
+ *
+ * A layer is only recognizable as belonging to a group while its source holds
+ * features of it, and DMV empties sources as the user zooms - the layer of the
+ * high resolution polygons is empty until it is needed. A wrapper left behind
+ * on such a layer would hide annotations against a mask nobody can reach any
+ * more once the source fills up again, so the layers that carry one are
+ * remembered rather than looked up again.
+ *
+ * Strong references, deliberately: a `WeakSet` cannot be enumerated, and this
+ * only ever holds layers of the one group that is currently filtered, which
+ * are dropped as soon as the filter is cleared.
+ */
+const wrappedLayers = new Map<string, Set<OlVectorLayerLike>>()
+
+/**
  * Find the layers whose (possibly clustered) source holds an annotation group.
  *
  * @param viewer - Volume image viewer
@@ -214,6 +230,10 @@ function findAnnotationGroupLayers(
  * Cluster features have no id of their own, so a cluster is kept whenever any
  * of its members is allowed; cluster bubbles thin out rather than vanish.
  *
+ * Layers keep their wrapper until the filter is cleared, even if their source
+ * empties in the meantime, so that clearing always reaches every layer that was
+ * ever wrapped rather than only those that hold features at that moment.
+ *
  * The mask only covers the annotations DMV had materialized when it was built,
  * and an annotation whose index falls beyond it is left visible rather than
  * hidden. Annotations DMV materializes later therefore escape the filter until
@@ -251,7 +271,17 @@ export function setAnnotationVisibilityFilter({
     return index < 0 || index >= allowed.length || allowed[index] === 1
   }
 
-  for (const layer of findAnnotationGroupLayers(viewer, annotationGroupUID)) {
+  const remembered = wrappedLayers.get(annotationGroupUID)
+  const targets = findAnnotationGroupLayers(viewer, annotationGroupUID)
+  if (remembered !== undefined) {
+    for (const layer of remembered) {
+      if (!targets.includes(layer)) {
+        targets.push(layer)
+      }
+    }
+  }
+
+  for (const layer of targets) {
     if (
       typeof layer.getStyle !== 'function' ||
       typeof layer.setStyle !== 'function'
@@ -287,7 +317,31 @@ export function setAnnotationVisibilityFilter({
     }
     filterStyles.add(wrapper)
     layer.setStyle(wrapper)
+    rememberWrappedLayer(annotationGroupUID, layer)
   }
+
+  if (allowed === null) {
+    wrappedLayers.delete(annotationGroupUID)
+  }
+}
+
+/**
+ * Record that a layer carries a wrapper of an annotation group, so that
+ * clearing the filter can find it again once its source is empty.
+ *
+ * @param annotationGroupUID - Unique identifier of the annotation group
+ * @param layer - Layer that was wrapped
+ */
+function rememberWrappedLayer(
+  annotationGroupUID: string,
+  layer: OlVectorLayerLike,
+): void {
+  const layers = wrappedLayers.get(annotationGroupUID)
+  if (layers === undefined) {
+    wrappedLayers.set(annotationGroupUID, new Set([layer]))
+    return
+  }
+  layers.add(layer)
 }
 
 /**

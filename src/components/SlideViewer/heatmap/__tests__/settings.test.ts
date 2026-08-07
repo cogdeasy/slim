@@ -84,6 +84,17 @@ describe('applySettingsPatch', () => {
     expect(updated.measurement).toBeUndefined()
   })
 
+  it('only overrules the metric on the switch to regions of interest', () => {
+    /*
+     * Overruling it on every later patch too would make the reset a rule
+     * about the source rather than about the switch, and would silently undo
+     * a metric set from anywhere but the panel.
+     */
+    const onRois = applySettingsPatch(settings, { sourceKind: 'rois' })
+    const withMetric = { ...onRois, metric: 'mean' as const }
+    expect(applySettingsPatch(withMetric, { opacity: 0.5 }).metric).toBe('mean')
+  })
+
   it('drops the filter and the clamp when the measurement is cleared', () => {
     /*
      * Clearing the measurement changes what is aggregated just as much as

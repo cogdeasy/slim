@@ -153,6 +153,18 @@ describe('computeHeatmapGrid', () => {
     expect(response.includedCount).toBe(0)
   })
 
+  it('ignores annotations whose position is not a number', () => {
+    /*
+     * An empty region of interest has no coordinates to transform. Indexing a
+     * typed array with the resulting `NaN` is silently ignored, so such an
+     * annotation must not be counted as having contributed to a bin either.
+     */
+    const response = computeHeatmapGrid(
+      buildRequest({ xy: new Float32Array([Number.NaN, Number.NaN, 2.5, 2.5]) }),
+    )
+    expect(response.includedCount).toBe(1)
+  })
+
   it('reports the bin size it actually used, not the requested one', () => {
     /*
      * Consumers place the overlay and sample the hover readout with this

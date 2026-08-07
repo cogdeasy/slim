@@ -32,8 +32,17 @@ export function applySettingsPatch(
    * that aggregates one cannot be honored. The panel offers only density for
    * that source, and this keeps a metric chosen for an annotation group from
    * surviving the switch and stranding the user on an error message.
+   *
+   * Only the switch itself resets the metric. Doing it for every later patch
+   * would be a metric the settings silently overrule rather than one the
+   * source cannot express, and it would hide a source that does carry
+   * measurements the moment one exists.
    */
-  if (updated.sourceKind === 'rois' && !('metric' in patch)) {
+  if (
+    'sourceKind' in patch &&
+    updated.sourceKind === 'rois' &&
+    !('metric' in patch)
+  ) {
     updated.metric = 'density'
   }
   /*

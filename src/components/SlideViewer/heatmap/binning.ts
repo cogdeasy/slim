@@ -93,7 +93,13 @@ export function computeHeatmapGrid(request: BinningRequest): BinningResponse {
      * symmetric slide - hence the explicit test.
      */
     const row = Math.floor((maxY - xy[i * 2 + 1]) / binSizeUnits)
-    if (column < 0 || column >= width || row < 0 || row >= height) {
+    /*
+     * Written to reject rather than to accept, so that a position that is not
+     * a number falls out here. Indexing a typed array with `NaN` is a silent
+     * no-op, so the other spelling would count the annotation as contributing
+     * to a bin it never reached.
+     */
+    if (!(column >= 0 && column < width && row >= 0 && row < height)) {
       continue
     }
     const bin = row * width + column
