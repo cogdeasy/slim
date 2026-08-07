@@ -67,6 +67,10 @@ const aboutModalStyles: Record<string, React.CSSProperties> = {
     display: 'inline-block',
     marginBottom: 16,
   },
+  brandMark: {
+    height: 64,
+    marginBottom: 12,
+  },
   section: {
     marginBottom: 12,
   },
@@ -360,6 +364,11 @@ class Header extends React.Component<HeaderProps, HeaderState> {
       centered: true,
       content: (
         <div style={aboutModalStyles.container}>
+          <img
+            src={`${process.env.PUBLIC_URL}/philips-shield.svg`}
+            alt="Philips"
+            style={aboutModalStyles.brandMark}
+          />
           <Typography.Title level={3} style={aboutModalStyles.title}>
             <Typography.Link
               href={this.props.app.homepage}
@@ -749,7 +758,7 @@ class Header extends React.Component<HeaderProps, HeaderState> {
       )
     }
 
-    const logoUrl = `${process.env.PUBLIC_URL}/logo.svg`
+    const logoUrl = `${process.env.PUBLIC_URL}/philips-wordmark-white.svg`
 
     const selectedServerUrl =
       this.props.clients?.default?.baseURL ??
@@ -784,8 +793,8 @@ class Header extends React.Component<HeaderProps, HeaderState> {
               <Space align="center" direction="horizontal">
                 <img
                   src={logoUrl}
-                  alt=""
-                  style={{ height: '64px', margin: '-14px' }}
+                  alt="Philips"
+                  style={{ height: '22px', marginRight: '12px' }}
                 />
               </Space>
             </Col>
