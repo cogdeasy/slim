@@ -28,6 +28,15 @@ export function applySettingsPatch(
 ): HeatmapSettings {
   const updated: HeatmapSettings = { ...settings, ...patch }
   /*
+   * Regions of interest carry no per-annotation measurements, so a metric
+   * that aggregates one cannot be honored. The panel offers only density for
+   * that source, and this keeps a metric chosen for an annotation group from
+   * surviving the switch and stranding the user on an error message.
+   */
+  if (updated.sourceKind === 'rois' && patch.metric === undefined) {
+    updated.metric = 'density'
+  }
+  /*
    * Membership rather than a value comparison: clearing the measurement is a
    * change of what is aggregated just as much as picking a different one is.
    */

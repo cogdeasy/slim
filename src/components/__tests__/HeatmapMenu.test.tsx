@@ -168,6 +168,16 @@ describe('HeatmapMenu', () => {
     expect(screen.getByLabelText('Log scale')).toBeEnabled()
   })
 
+  it('lets the log scale be chosen before the first heatmap exists', () => {
+    /*
+     * Whether the values allow it is unknown until a grid has been computed,
+     * and refusing until then would make the toggle look permanently broken
+     * to anyone who sets it up before switching the heatmap on.
+     */
+    renderMenu({ status: { grid: null } })
+    expect(screen.getByLabelText('Log scale')).toBeEnabled()
+  })
+
   it('offers a measurement filter once the measurement range is known', () => {
     renderMenu({
       settings: { metric: 'mean', measurement: MEASUREMENTS[0].name },

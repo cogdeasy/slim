@@ -171,9 +171,13 @@ const HeatmapMenu: React.FC<HeatmapMenuProps> = ({
   const grid = status.grid
   const clampLow = grid?.minValue ?? 0
   const clampHigh = grid?.maxValue ?? 0
-  const canUseLogScale = isLogScaleApplicable(
-    settings.clampRange?.[0] ?? clampLow,
-  )
+  /*
+   * Whether the values admit a logarithmic scale is only known once a grid
+   * exists, and refusing the toggle until then would stop the user from
+   * asking for one before the first heatmap has been computed.
+   */
+  const canUseLogScale =
+    grid === null || isLogScaleApplicable(settings.clampRange?.[0] ?? clampLow)
 
   return (
     /*

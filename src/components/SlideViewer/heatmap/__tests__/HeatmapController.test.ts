@@ -80,6 +80,9 @@ class FakeWorker {
 
 let mockWorker: FakeWorker
 
+/** Stand-in for the style function DMV puts on the layers of a group. */
+const BASE_STYLE = (): string => 'dmv'
+
 const AREA = {
   CodingSchemeDesignator: 'SCT',
   CodeValue: '42798000',
@@ -162,15 +165,25 @@ function buildMetadata(annotationGroupUID: string): object {
 function buildViewer(): {
   viewer: dmv.viewer.VolumeImageViewer
   setFeatures: (features: OlFeatureLike[]) => void
+  getStyle: () => unknown
 } {
   let features: OlFeatureLike[] = []
+  /** The style DMV would have put on the layer of the annotation group. */
+  let style: unknown = BASE_STYLE
+  const layer = {
+    getSource: () => ({ getFeatures: () => features }),
+    getStyle: () => style,
+    setStyle: (next: unknown) => {
+      style = next
+    },
+  }
   /** One map for the lifetime of the viewer, so that its calls can be counted. */
   const map = {
     getView: () => ({
       getProjection: () => ({ getExtent: () => [0, -2, 2, 0] }),
     }),
     getLayers: () => ({
-      getArray: () => [{ getSource: () => ({ getFeatures: () => features }) }],
+      getArray: () => [layer],
     }),
     addLayer: jest.fn(),
     removeLayer: jest.fn(),
@@ -190,6 +203,7 @@ function buildViewer(): {
     setFeatures: (next) => {
       features = next
     },
+    getStyle: () => style,
   }
 }
 
@@ -428,6 +442,40 @@ describe('HeatmapController', () => {
 
     controller.update({ ...DEFAULT_HEATMAP_SETTINGS, isVisible: true }, [])
     expect(map.addLayer).toHaveBeenCalledTimes(1)
+
+    controller.dispose()
+  })
+
+  it('shows the annotations again when the heatmap gives up', async () => {
+    /*
+     * The measurement filter is driven by settings that no longer produce a
+     * heatmap, and the slider that could lift it goes away with them, so
+     * leaving the annotations hidden would strand the user without a control
+     * to get them back.
+     */
+    const { viewer, setFeatures, getStyle } = buildViewer()
+    const controller = new HeatmapController({
+      viewer,
+      client: {
+        retrieveBulkData: async () => [Float32Array.from([10, 20]).buffer],
+      } as unknown as DicomWebManager,
+      settings: SETTINGS,
+      onStatusChange: () => {},
+    })
+
+    setFeatures([buildFeature('a', 0), buildFeature('a', 1)])
+    controller.update(
+      { ...SETTINGS, annotationGroupUID: 'a', filterRange: [0, 15] },
+      [],
+    )
+    await flush()
+    expect(getStyle()).not.toBe(BASE_STYLE)
+
+    /** Clearing the group is one of the settings that can only fail. */
+    controller.update({ ...SETTINGS, annotationGroupUID: undefined }, [])
+    await flush()
+    expect(controller.getStatus().error).toBe('Select an annotation group.')
+    expect(getStyle()).toBe(BASE_STYLE)
 
     controller.dispose()
   })

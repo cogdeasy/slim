@@ -3934,19 +3934,24 @@ class SlideViewer extends React.Component<SlideViewerProps, SlideViewerState> {
           ).setAnnotationOptions({
             clusteringPixelSizeThreshold: threshold,
           })
-          /*
-           * Clustering swaps which of a group's two layers is shown, and the
-           * filter only wrapped the styles of the layers that held features
-           * when it was applied.
-           */
-          this.heatmapController?.refreshAnnotationVisibilityFilter()
         } catch (error) {
           console.error('Failed to update annotation options:', error)
         }
       }
 
       return { isClusteringEnabled: newValue }
-    })
+    }, this.refreshHeatmapAnnotationFilter)
+  }
+
+  /**
+   * Reapply the heatmap's annotation visibility filter.
+   *
+   * Clustering swaps which of the two layers of a group is drawn, and the
+   * filter only wrapped the styles of the layers that held features when it
+   * was applied.
+   */
+  private readonly refreshHeatmapAnnotationFilter = (): void => {
+    this.heatmapController?.refreshAnnotationVisibilityFilter()
   }
 
   /**
@@ -3963,7 +3968,7 @@ class SlideViewer extends React.Component<SlideViewerProps, SlideViewerState> {
         clusteringPixelSizeThreshold: value ?? undefined,
       })
       /** As above: the layer the group is drawn on may just have changed. */
-      this.heatmapController?.refreshAnnotationVisibilityFilter()
+      this.refreshHeatmapAnnotationFilter()
     }
   }
 

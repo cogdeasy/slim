@@ -22,6 +22,27 @@ export interface HeatmapRenderOptions {
 const HEATMAP_Z_INDEX = 50
 
 /**
+ * Whether a change of rendering options changes the painted pixels, as opposed
+ * to only the transparency of the layer as a whole.
+ *
+ * @param previous - Options the offscreen canvas was painted with
+ * @param next - Options to paint with
+ *
+ * @returns Whether the canvas has to be repainted
+ */
+function affectsPixels(
+  previous: HeatmapRenderOptions,
+  next: HeatmapRenderOptions,
+): boolean {
+  return (
+    previous.colormap !== next.colormap ||
+    previous.useLogScale !== next.useLogScale ||
+    previous.clampRange?.[0] !== next.clampRange?.[0] ||
+    previous.clampRange?.[1] !== next.clampRange?.[1]
+  )
+}
+
+/**
  * An `ol/layer/Image` backed by an `ol/source/ImageCanvas` that rasterizes a
  * precomputed bin grid.
  *
@@ -94,8 +115,17 @@ export class HeatmapLayer {
    * @param options - Rendering options
    */
   setRenderOptions(options: HeatmapRenderOptions): void {
+    const previous = this.options
     this.options = options
     this.layer.setOpacity(options.opacity)
+    /*
+     * Opacity is a property of the layer rather than of the pixels, and the
+     * repaint costs one pass over up to four million bins, which is enough to
+     * be felt while a slider is being dragged.
+     */
+    if (!affectsPixels(previous, options)) {
+      return
+    }
     this.repaintOffscreen()
     this.layer.getSource()?.changed()
   }

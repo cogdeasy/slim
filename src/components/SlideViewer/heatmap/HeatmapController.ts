@@ -171,6 +171,18 @@ export class HeatmapController {
   }
 
   /**
+   * Remove the overlay layer from the map of the viewer, keeping the layer
+   * itself for the next time the heatmap is shown.
+   */
+  private detach(): void {
+    if (!this.isAttached) {
+      return
+    }
+    this.viewer.getMap().removeLayer(this.layer.getOlLayer())
+    this.isAttached = false
+  }
+
+  /**
    * Remove the overlay layer, terminate the worker, drop the caches and
    * restore the annotations that the filter hid.
    *
@@ -194,10 +206,7 @@ export class HeatmapController {
     this.worker?.terminate()
     this.worker = null
     this.clearAnnotationVisibilityFilter()
-    if (this.isAttached) {
-      this.viewer.getMap().removeLayer(this.layer.getOlLayer())
-      this.isAttached = false
-    }
+    this.detach()
     this.layer.dispose()
     this.positionCache.clear()
     this.measurementCache.clear()
@@ -370,6 +379,13 @@ export class HeatmapController {
       this.clearAnnotationVisibilityFilter()
       this.layer.setGrid(null)
       /*
+       * A layer of Slim's own copy of OpenLayers only sits in DMV's map for
+       * as long as it has something to draw. The two copies are compatible
+       * by duck typing alone, so the surface for that to matter is kept as
+       * small as the feature allows.
+       */
+      this.detach()
+      /*
        * The grid goes with the overlay: a legend describing bins nobody can
        * see is worse than no legend. Showing the heatmap again recomputes it.
        */
@@ -440,6 +456,12 @@ export class HeatmapController {
     this.pendingRequestId = null
     this.pendingRequest = null
     this.pendingContext = null
+    /*
+     * The filter is driven by the settings that no longer produce a heatmap,
+     * and the only control that could lift it is the slider that goes with
+     * them, so leaving it on would hide annotations irrecoverably.
+     */
+    this.clearAnnotationVisibilityFilter()
     this.layer.setGrid(null)
     this.setStatus({
       isComputing: false,

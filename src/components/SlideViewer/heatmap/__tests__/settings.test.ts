@@ -73,6 +73,17 @@ describe('applySettingsPatch', () => {
     ).toBeUndefined()
   })
 
+  it('falls back to density when the source becomes regions of interest', () => {
+    /*
+     * Regions of interest carry no per-annotation measurements, so a metric
+     * kept from an annotation group would leave the panel asking for a
+     * measurement that the source cannot offer.
+     */
+    const updated = applySettingsPatch(settings, { sourceKind: 'rois' })
+    expect(updated.metric).toBe('density')
+    expect(updated.measurement).toBeUndefined()
+  })
+
   it('drops the filter and the clamp when the measurement is cleared', () => {
     /*
      * Clearing the measurement changes what is aggregated just as much as
