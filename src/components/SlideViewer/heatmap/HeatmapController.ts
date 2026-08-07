@@ -21,6 +21,7 @@ import {
   type ViewerLike,
 } from './annotationData'
 import { computeHeatmapGrid, sampleGrid } from './binning'
+import { createBinningWorker } from './createBinningWorker'
 import { HeatmapLayer } from './HeatmapLayer'
 import { requiresMeasurement } from './settings'
 import {
@@ -66,12 +67,27 @@ export class HeatmapController {
 
   /** Extraction is the expensive step, so its result is cached per group. */
   private readonly positionCache = new Map<string, AnnotationPositions>()
+
+  /**
+   * Raw measurement values as fetched, indexed by DICOM annotation index.
+   *
+   * Deliberately not the values aligned with a set of positions: an aligned
+   * array is a gather into the extraction order of one particular
+   * `AnnotationPositions`, and the two caches are bounded separately, so a
+   * cached aligned array can outlive the positions it belongs to and end up
+   * attributing values to the wrong annotations.
+   */
   private readonly measurementCache = new Map<string, Float32Array>()
 
   /** Group whose annotations are currently hidden by the filter, if any. */
   private filteredAnnotationGroupUID: string | null = null
   private lastAllowed: Uint8Array | null = null
 
+  /**
+   * Incremented whenever a recompute starts or is abandoned, so that a
+   * recompute suspended in an `await` can tell that it has been superseded.
+   */
+  private generation = 0
   private requestCounter = 0
   private pendingRequestId: number | null = null
   private pendingRequest: BinningRequest | null = null
@@ -87,6 +103,14 @@ export class HeatmapController {
   private debounceHandle: ReturnType<typeof setTimeout> | null = null
   private status: HeatmapStatus = INITIAL_HEATMAP_STATUS
 
+  /**
+   * @param options - Options
+   * @param options.viewer - Volume image viewer the heatmap overlays
+   * @param options.client - Client used to fetch measurement bulk data
+   * @param options.settings - Initial heatmap settings
+   * @param options.onStatusChange - Called whenever the status changes, to
+   * mirror it into React state
+   */
   constructor({
     viewer,
     client,
@@ -109,7 +133,7 @@ export class HeatmapController {
     })
 
     try {
-      this.worker = new Worker(new URL('./binning.worker.ts', import.meta.url))
+      this.worker = createBinningWorker()
       this.worker.onmessage = (event: MessageEvent<BinningResponse>) => {
         this.handleBinningResponse(event.data)
       }
@@ -159,6 +183,7 @@ export class HeatmapController {
       return
     }
     this.isDisposed = true
+    this.generation += 1
     if (this.debounceHandle !== null) {
       clearTimeout(this.debounceHandle)
       this.debounceHandle = null
@@ -225,22 +250,12 @@ export class HeatmapController {
     annotationGroupUID: string,
     measurement: { CodeValue: string; CodingSchemeDesignator: string },
   ): Promise<[number, number] | null> {
-    const metadata = this.getMetadata(annotationGroupUID)
-    const descriptor = findMeasurement({
-      metadata,
+    return await getMeasurementRangeOfGroup({
+      viewer: this.viewer,
+      client: this.client,
       annotationGroupUID,
       measurement,
     })
-    if (descriptor === undefined) {
-      return null
-    }
-    const values = await fetchMeasurementValues({
-      client: this.client,
-      metadata,
-      annotationGroupUID,
-      measurementIndex: descriptor.index,
-    })
-    return getValueRange(values)
   }
 
   /**
@@ -319,6 +334,7 @@ export class HeatmapController {
     }
     if (!settings.isVisible) {
       /** Hiding the heatmap must not leave annotations hidden with it. */
+      this.generation += 1
       this.pendingRequestId = null
       this.pendingRequest = null
       this.clearAnnotationVisibilityFilter()
@@ -374,6 +390,7 @@ export class HeatmapController {
       isComputing: false,
       grid: null,
       timings: null,
+      annotationCount: 0,
       error: message,
     })
   }
@@ -389,6 +406,8 @@ export class HeatmapController {
     rois: dmv.roi.ROI[],
   ): Promise<void> {
     const totalStart = performance.now()
+    this.generation += 1
+    const generation = this.generation
     this.setStatus({ isComputing: true, error: null, warning: null })
 
     if (
@@ -426,7 +445,7 @@ export class HeatmapController {
       return
     }
     const extractMs = performance.now() - extractStart
-    if (this.isDisposed) {
+    if (this.isStale(generation)) {
       return
     }
 
@@ -463,6 +482,9 @@ export class HeatmapController {
       try {
         values = await this.getMeasurementValues(settings, positions)
       } catch (error) {
+        if (this.isStale(generation)) {
+          return
+        }
         this.failWith(
           `Could not load measurement values: ` +
             `${error instanceof Error ? error.message : String(error)}`,
@@ -471,7 +493,12 @@ export class HeatmapController {
       }
       fetchMeasurementMs = performance.now() - fetchStart
     }
-    if (this.isDisposed) {
+    /*
+     * A fetch can take arbitrarily long, so by now a later recompute may
+     * already have published its grid and filter. Publishing this one would
+     * put the settings the user has moved away from back on the screen.
+     */
+    if (this.isStale(generation)) {
       return
     }
 
@@ -521,6 +548,17 @@ export class HeatmapController {
     } else {
       this.handleBinningResponse(computeHeatmapGrid(request))
     }
+  }
+
+  /**
+   * Determine whether a recompute has been superseded while it was suspended.
+   *
+   * @param generation - Generation the recompute claimed when it started
+   *
+   * @returns Whether the recompute must abandon its result
+   */
+  private isStale(generation: number): boolean {
+    return this.isDisposed || generation !== this.generation
   }
 
   /**
@@ -599,7 +637,12 @@ export class HeatmapController {
       annotationGroupUID: uid,
       expectedCount: getExpectedAnnotationCount(this.getMetadata(uid), uid),
     })
-    if (positions !== null) {
+    if (positions !== null && positions.count > 0) {
+      /*
+       * An empty extraction means the group is still streaming in rather than
+       * that it is empty, so caching it would make every retry fail until the
+       * group is toggled.
+       */
       evictOldest(this.positionCache, MAX_CACHED_POSITIONS)
       this.positionCache.set(uid, positions)
     }
@@ -635,20 +678,23 @@ export class HeatmapController {
       return undefined
     }
     const cacheKey = `${uid}::${descriptor.key}`
-    const cached = this.measurementCache.get(cacheKey)
-    if (cached !== undefined) {
-      return cached
+    let raw = this.measurementCache.get(cacheKey)
+    if (raw === undefined) {
+      raw = await fetchMeasurementValues({
+        client: this.client,
+        metadata,
+        annotationGroupUID: uid,
+        measurementIndex: descriptor.index,
+      })
+      evictOldest(this.measurementCache, MAX_CACHED_MEASUREMENTS)
+      this.measurementCache.set(cacheKey, raw)
     }
-    const raw = await fetchMeasurementValues({
-      client: this.client,
-      metadata,
-      annotationGroupUID: uid,
-      measurementIndex: descriptor.index,
-    })
-    const aligned = alignMeasurementValues({ positions, values: raw })
-    evictOldest(this.measurementCache, MAX_CACHED_MEASUREMENTS)
-    this.measurementCache.set(cacheKey, aligned)
-    return aligned
+    /*
+     * Aligning on every recompute rather than caching the aligned array: the
+     * gather is a few milliseconds even for a million annotations, and it is
+     * the only way to guarantee that the values match the positions in hand.
+     */
+    return alignMeasurementValues({ positions, values: raw })
   }
 
   /**
@@ -729,6 +775,54 @@ export function listMeasurementsOfGroup(
     annotationGroupUID,
   ) as unknown as AnnotationsMetadataLike
   return listMeasurements(metadata, annotationGroupUID)
+}
+
+/**
+ * Get the range of a measurement across a whole annotation group, to bound the
+ * filter slider.
+ *
+ * A free function for the same reason as `listMeasurementsOfGroup`: it needs
+ * nothing but metadata and a client, so asking for it should not cost a
+ * worker and a layer.
+ *
+ * @param options - Options
+ * @param options.viewer - Volume image viewer
+ * @param options.client - Client used to fetch measurement bulk data
+ * @param options.annotationGroupUID - Unique identifier of the annotation group
+ * @param options.measurement - Coded concept naming the measurement
+ *
+ * @returns The range, or `null` when the group has no such measurement or no
+ * finite values
+ */
+export async function getMeasurementRangeOfGroup({
+  viewer,
+  client,
+  annotationGroupUID,
+  measurement,
+}: {
+  viewer: dmv.viewer.VolumeImageViewer
+  client: DicomWebManager
+  annotationGroupUID: string
+  measurement: { CodeValue: string; CodingSchemeDesignator: string }
+}): Promise<[number, number] | null> {
+  const metadata = viewer.getAnnotationGroupMetadata(
+    annotationGroupUID,
+  ) as unknown as AnnotationsMetadataLike
+  const descriptor = findMeasurement({
+    metadata,
+    annotationGroupUID,
+    measurement,
+  })
+  if (descriptor === undefined) {
+    return null
+  }
+  const values = await fetchMeasurementValues({
+    client,
+    metadata,
+    annotationGroupUID,
+    measurementIndex: descriptor.index,
+  })
+  return getValueRange(values)
 }
 
 /**

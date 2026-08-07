@@ -73,6 +73,18 @@ describe('applySettingsPatch', () => {
     ).toBeUndefined()
   })
 
+  it('drops the filter and the clamp when the measurement is cleared', () => {
+    /*
+     * Clearing the measurement changes what is aggregated just as much as
+     * picking another one does, so a patch that sets it to `undefined` has to
+     * invalidate the ranges expressed in the units of the old measurement.
+     */
+    const updated = applySettingsPatch(settings, { measurement: undefined })
+    expect(updated.measurement).toBeUndefined()
+    expect(updated.filterRange).toBeUndefined()
+    expect(updated.clampRange).toBeUndefined()
+  })
+
   it('keeps the filter across a switch between measurement metrics', () => {
     expect(applySettingsPatch(settings, { metric: 'max' }).filterRange).toEqual(
       [1, 5],

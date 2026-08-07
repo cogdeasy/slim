@@ -298,8 +298,9 @@ const HeatmapMenu: React.FC<HeatmapMenuProps> = ({
           </Col>
           <Col span={6}>
             <InputNumber
-              min={1}
-              max={5000}
+              min={10}
+              max={1000}
+              step={10}
               size="small"
               aria-label="Bin size in micrometer"
               style={{ width: '70px' }}

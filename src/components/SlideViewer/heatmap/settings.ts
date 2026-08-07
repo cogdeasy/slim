@@ -27,20 +27,22 @@ export function applySettingsPatch(
   patch: Partial<HeatmapSettings>,
 ): HeatmapSettings {
   const updated: HeatmapSettings = { ...settings, ...patch }
+  /*
+   * Membership rather than a value comparison: clearing the measurement is a
+   * change of what is aggregated just as much as picking a different one is.
+   */
+  const changesMeasurement = 'measurement' in patch
+  const changesSource =
+    patch.annotationGroupUID !== undefined || patch.sourceKind !== undefined
   /** A measurement belongs to one group, so it cannot survive a group change. */
-  if (
-    (patch.annotationGroupUID !== undefined ||
-      patch.sourceKind !== undefined) &&
-    patch.measurement === undefined
-  ) {
+  if (changesSource && !changesMeasurement) {
     updated.measurement = undefined
   }
   const changesAggregation =
     patch.metric !== undefined ||
-    patch.measurement !== undefined ||
+    changesMeasurement ||
     patch.binSizeMicrometer !== undefined ||
-    patch.annotationGroupUID !== undefined ||
-    patch.sourceKind !== undefined
+    changesSource
   if (changesAggregation && patch.clampRange === undefined) {
     updated.clampRange = undefined
   }
@@ -50,9 +52,8 @@ export function applySettingsPatch(
    * would keep annotations hidden with no control left to restore them.
    */
   if (
-    (patch.measurement !== undefined ||
-      patch.annotationGroupUID !== undefined ||
-      patch.sourceKind !== undefined ||
+    (changesMeasurement ||
+      changesSource ||
       !requiresMeasurement(updated.metric)) &&
     patch.filterRange === undefined
   ) {

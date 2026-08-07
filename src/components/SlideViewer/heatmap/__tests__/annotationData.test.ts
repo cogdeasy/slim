@@ -446,6 +446,29 @@ describe('setAnnotationVisibilityFilter', () => {
     expect(styleOf(hidden)).toBe('base-style')
   })
 
+  it('adopts a style that was set while the filter was applied', () => {
+    /*
+     * DMV rebuilds the style of a group whenever its color or opacity is
+     * changed. Keeping the style remembered from before the change would make
+     * such a change invisible for as long as the filter is on.
+     */
+    const feature = buildFeature({ id: `${GROUP_UID}-0` })
+    const { layer, styleOf } = buildStyledLayer([feature])
+    const viewer = buildViewer([layer])
+    const allowed = Uint8Array.from([1, 0])
+    setAnnotationVisibilityFilter({ viewer, annotationGroupUID: GROUP_UID, allowed })
+    layer.setStyle?.('recolored-style')
+    setAnnotationVisibilityFilter({ viewer, annotationGroupUID: GROUP_UID, allowed })
+    expect(styleOf(feature)).toBe('recolored-style')
+
+    setAnnotationVisibilityFilter({
+      viewer,
+      annotationGroupUID: GROUP_UID,
+      allowed: null,
+    })
+    expect(styleOf(feature)).toBe('recolored-style')
+  })
+
   it('does not stack wrappers when applied repeatedly', () => {
     const feature = buildFeature({ id: `${GROUP_UID}-1` })
     const { layer, styleOf } = buildStyledLayer([feature])

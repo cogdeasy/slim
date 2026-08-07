@@ -41,6 +41,9 @@ export class HeatmapLayer {
   private grid: HeatmapGrid | null = null
   private options: HeatmapRenderOptions
 
+  /**
+   * @param options - How the grid is to be painted
+   */
   constructor(options: HeatmapRenderOptions) {
     this.options = options
     this.offscreen = document.createElement('canvas')

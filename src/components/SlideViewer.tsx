@@ -78,6 +78,7 @@ import {
 } from './SlideViewer/constants'
 import type { MeasurementDescriptor } from './SlideViewer/heatmap/annotationData'
 import {
+  getMeasurementRangeOfGroup,
   HeatmapController,
   listMeasurementsOfGroup,
 } from './SlideViewer/heatmap/HeatmapController'
@@ -2470,12 +2471,22 @@ class SlideViewer extends React.Component<SlideViewerProps, SlideViewerState> {
           patch.isVisible === false ? null : state.heatmapHoveredValue,
       }),
       () => {
-        this.getHeatmapController().update(
-          this.state.heatmapSettings,
-          this.volumeViewer.getAllROIs(),
-        )
         if (
-          patch.measurement !== undefined ||
+          this.heatmapController !== null ||
+          this.state.heatmapSettings.isVisible
+        ) {
+          /*
+           * Constructing the controller spawns a worker and adds a layer to
+           * the map, so it is deferred until the heatmap is actually shown
+           * rather than paid for by anyone who touches a control.
+           */
+          this.getHeatmapController().update(
+            this.state.heatmapSettings,
+            this.volumeViewer.getAllROIs(),
+          )
+        }
+        if (
+          'measurement' in patch ||
           patch.annotationGroupUID !== undefined ||
           patch.sourceKind !== undefined
         ) {
@@ -2501,11 +2512,13 @@ class SlideViewer extends React.Component<SlideViewerProps, SlideViewerState> {
       return
     }
     try {
-      const heatmapMeasurementRange =
-        await this.getHeatmapController().getMeasurementRange(
-          annotationGroupUID,
-          measurement,
-        )
+      const heatmapMeasurementRange = await getMeasurementRangeOfGroup({
+        viewer: this.volumeViewer,
+        client:
+          this.props.clients[StorageClasses.MICROSCOPY_BULK_SIMPLE_ANNOTATION],
+        annotationGroupUID,
+        measurement,
+      })
       this.setState({ heatmapMeasurementRange })
     } catch (error) {
       logger.error('failed to determine measurement range', error)

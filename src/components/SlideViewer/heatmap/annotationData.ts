@@ -158,6 +158,14 @@ function collectSources(viewer: ViewerLike): OlVectorSourceLike[] {
 const baseStyles = new WeakMap<object, unknown>()
 
 /**
+ * The wrappers this module has installed, so that a style found on a layer can
+ * be told apart from one DMV set. Without this the filter cannot tell "my own
+ * wrapper, leave the remembered base alone" from "DMV has restyled the group,
+ * adopt the new style as the base".
+ */
+const filterStyles = new WeakSet<object>()
+
+/**
  * Find the layers whose (possibly clustered) source holds an annotation group.
  *
  * @param viewer - Volume image viewer
@@ -206,6 +214,13 @@ function findAnnotationGroupLayers(
  * Cluster features have no id of their own, so a cluster is kept whenever any
  * of its members is allowed; cluster bubbles thin out rather than vanish.
  *
+ * The mask only covers the annotations DMV had materialized when it was built,
+ * and an annotation whose index falls beyond it is left visible rather than
+ * hidden. Annotations DMV materializes later therefore escape the filter until
+ * it is recomputed; that is the same partial-materialization case the panel
+ * already warns about, and erring towards showing an annotation is the safer
+ * of the two ways to be wrong.
+ *
  * @param options - Options
  * @param options.viewer - Volume image viewer
  * @param options.annotationGroupUID - Unique identifier of the annotation group
@@ -243,23 +258,35 @@ export function setAnnotationVisibilityFilter({
     ) {
       continue
     }
-    if (!baseStyles.has(layer)) {
-      baseStyles.set(layer, layer.getStyle())
+    const current = layer.getStyle()
+    const isWrapped =
+      typeof current === 'function' && filterStyles.has(current as object)
+    if (!isWrapped) {
+      /*
+       * Whatever is on the layer was put there by DMV, which rebuilds the
+       * style of a group whenever its color or opacity changes. Adopting it
+       * here is what keeps such a change visible through the filter.
+       */
+      baseStyles.set(layer, current)
     }
     const base = baseStyles.get(layer)
     if (allowed === null) {
-      layer.setStyle(base)
+      if (isWrapped) {
+        layer.setStyle(base)
+      }
       baseStyles.delete(layer)
       continue
     }
-    layer.setStyle((feature: OlFeatureLike, resolution: number) => {
+    const wrapper = (feature: OlFeatureLike, resolution: number): unknown => {
       if (!isAllowed(feature)) {
         return undefined
       }
       return typeof base === 'function'
         ? (base as OlStyleFunctionLike)(feature, resolution)
         : base
-    })
+    }
+    filterStyles.add(wrapper)
+    layer.setStyle(wrapper)
   }
 }
 
@@ -664,7 +691,9 @@ export function alignMeasurementValues({
  * Build the mask of annotations that a measurement filter keeps.
  *
  * The mask is indexed by DICOM annotation index rather than by extraction
- * order, so that it can be applied to any of the layers of the group.
+ * order, so that it can be applied to any of the layers of the group. It is
+ * only as long as the highest index that was extracted, so it says nothing
+ * about annotations DMV has not materialized yet.
  *
  * @param options - Options
  * @param options.positions - Extracted positions
