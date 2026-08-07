@@ -116,6 +116,14 @@ describe('HeatmapMenu', () => {
     expect(screen.queryByText('Annotation group')).toBeNull()
   })
 
+  it('offers only density for the ROI source', async () => {
+    /** Regions of interest carry no measurements to aggregate. */
+    renderMenu({ settings: { sourceKind: 'rois' } })
+    fireEvent.mouseDown(screen.getByText('Annotation density (count)'))
+    const option = await screen.findByTitle('Mean of measurement')
+    expect(option).toHaveClass('ant-select-item-option-disabled')
+  })
+
   it('reports a bin size change', () => {
     const onChange = renderMenu()
     fireEvent.change(screen.getByLabelText('Bin size in micrometer'), {

@@ -452,6 +452,8 @@ class SlideViewer extends React.Component<SlideViewerProps, SlideViewerState> {
 
       const [offset, size] = this.volumeViewer.boundingBox
 
+      /** A range being fetched belongs to a group of the slide being left. */
+      this.heatmapMeasurementRangeRequestId += 1
       this.setState({
         visibleRoiUIDs: new Set(),
         visibleSegmentUIDs: new Set(),
@@ -2300,6 +2302,7 @@ class SlideViewer extends React.Component<SlideViewerProps, SlideViewerState> {
   }
 
   componentCleanup = (): void => {
+    this.disposeHeatmapController()
     document.body.removeEventListener(
       'dicommicroscopyviewer_roi_drawn',
       this.onRoiDrawn,
@@ -2451,7 +2454,19 @@ class SlideViewer extends React.Component<SlideViewerProps, SlideViewerState> {
         client:
           this.props.clients[StorageClasses.MICROSCOPY_BULK_SIMPLE_ANNOTATION],
         settings: this.state.heatmapSettings,
-        onStatusChange: (heatmapStatus) => this.setState({ heatmapStatus }),
+        onStatusChange: (heatmapStatus) =>
+          this.setState((state) => ({
+            heatmapStatus,
+            /*
+             * The readout names the bin under the cursor, and a new grid has
+             * different bins, so the old number now describes nothing. It is
+             * filled in again by the next pointer move.
+             */
+            heatmapHoveredValue:
+              heatmapStatus.grid === state.heatmapStatus.grid
+                ? state.heatmapHoveredValue
+                : null,
+          })),
       })
     }
     return this.heatmapController

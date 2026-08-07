@@ -164,17 +164,19 @@ function buildViewer(): {
   setFeatures: (features: OlFeatureLike[]) => void
 } {
   let features: OlFeatureLike[] = []
-  const viewer = {
-    getMap: () => ({
-      getView: () => ({
-        getProjection: () => ({ getExtent: () => [0, -2, 2, 0] }),
-      }),
-      getLayers: () => ({
-        getArray: () => [{ getSource: () => ({ getFeatures: () => features }) }],
-      }),
-      addLayer: () => {},
-      removeLayer: () => {},
+  /** One map for the lifetime of the viewer, so that its calls can be counted. */
+  const map = {
+    getView: () => ({
+      getProjection: () => ({ getExtent: () => [0, -2, 2, 0] }),
     }),
+    getLayers: () => ({
+      getArray: () => [{ getSource: () => ({ getFeatures: () => features }) }],
+    }),
+    addLayer: jest.fn(),
+    removeLayer: jest.fn(),
+  }
+  const viewer = {
+    getMap: () => map,
     getAffine: () => [
       [0.001, 0, 0],
       [0, 0.001, 0],
@@ -360,6 +362,72 @@ describe('HeatmapController', () => {
 
     controller.update({ ...SETTINGS, annotationGroupUID: 'a', isVisible: false }, [])
     expect(controller.getStatus().grid).toBeNull()
+
+    controller.dispose()
+  })
+
+  it('keeps an error on screen when the abandoned recompute answers', async () => {
+    /*
+     * The binner has no idea that the recompute it is working for has been
+     * given up on, so its answer arrives after the error message and must not
+     * paint the heatmap of the settings the user has moved away from over it.
+     */
+    const { viewer, setFeatures } = buildViewer()
+    const statuses: Array<string | null> = []
+    const controller = new HeatmapController({
+      viewer,
+      client: {
+        retrieveBulkData: async () => [Float32Array.from([10, 20]).buffer],
+      } as unknown as DicomWebManager,
+      settings: SETTINGS,
+      onStatusChange: (status) => statuses.push(status.error),
+    })
+
+    setFeatures([buildFeature('a', 0), buildFeature('a', 1)])
+    controller.update({ ...SETTINGS, annotationGroupUID: 'a' }, [])
+    await flush()
+    const inFlight = mockWorker.requests[0].requestId
+
+    /** No group selected, so the next recompute can only report a problem. */
+    controller.update({ ...SETTINGS, annotationGroupUID: undefined }, [])
+    await flush()
+    expect(statuses[statuses.length - 1]).toBe('Select an annotation group.')
+
+    mockWorker.onmessage?.({
+      data: {
+        requestId: inFlight,
+        values: Float32Array.from([15]),
+        counts: Uint32Array.from([2]),
+        width: 1,
+        height: 1,
+        binSizeUnits: 1000,
+        minValue: 15,
+        maxValue: 15,
+        includedCount: 2,
+        durationMs: 1,
+      },
+    } as MessageEvent<unknown>)
+    expect(controller.getStatus().error).toBe('Select an annotation group.')
+    expect(controller.getStatus().grid).toBeNull()
+
+    controller.dispose()
+  })
+
+  it('leaves the map alone while the heatmap is switched off', () => {
+    const { viewer } = buildViewer()
+    const map = viewer.getMap() as unknown as { addLayer: jest.Mock }
+    const controller = new HeatmapController({
+      viewer,
+      client: {} as unknown as DicomWebManager,
+      settings: DEFAULT_HEATMAP_SETTINGS,
+      onStatusChange: () => {},
+    })
+
+    controller.update({ ...DEFAULT_HEATMAP_SETTINGS, opacity: 0.4 }, [])
+    expect(map.addLayer).not.toHaveBeenCalled()
+
+    controller.update({ ...DEFAULT_HEATMAP_SETTINGS, isVisible: true }, [])
+    expect(map.addLayer).toHaveBeenCalledTimes(1)
 
     controller.dispose()
   })

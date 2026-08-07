@@ -249,7 +249,16 @@ const HeatmapMenu: React.FC<HeatmapMenuProps> = ({
             aria-labelledby="heatmap-metric-label"
             value={settings.metric}
             onChange={(value) => onChange({ metric: value })}
-            options={METRIC_OPTIONS}
+            options={METRIC_OPTIONS.map((option) => ({
+              ...option,
+              /*
+               * Regions of interest carry no per-annotation measurements, so
+               * offering these would only lead to an error message.
+               */
+              disabled:
+                settings.sourceKind === 'rois' &&
+                requiresMeasurement(option.value),
+            }))}
           />
         </div>
 

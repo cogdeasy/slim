@@ -251,9 +251,10 @@ declare module 'dicom-microscopy-viewer' {
        */
       getMap (): OlMap
       /**
-       * Affine transformation matrix mapping OpenLayers projection
-       * coordinates (total pixel matrix pixels of the base level) to slide
-       * coordinates in millimeter.
+       * Affine transformation matrix mapping total pixel matrix pixel
+       * coordinates of the base level to slide coordinates in millimeter.
+       * These differ from OpenLayers projection coordinates only in the sign
+       * and offset of the row axis, so the two share a scale.
        */
       getAffine (): number[][]
     }

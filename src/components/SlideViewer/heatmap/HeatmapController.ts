@@ -350,7 +350,6 @@ export class HeatmapController {
     if (this.isDisposed) {
       return
     }
-    this.attach()
     this.layer.setRenderOptions({
       colormap: settings.colormap,
       opacity: settings.opacity,
@@ -383,6 +382,11 @@ export class HeatmapController {
       })
       return
     }
+    /*
+     * Attaching only now: touching a control while the heatmap is off should
+     * not put a layer on DMV's map.
+     */
+    this.attach()
     this.debounceHandle = setTimeout(() => {
       this.debounceHandle = null
       void this.recompute(settings, rois)
@@ -427,6 +431,15 @@ export class HeatmapController {
    * @param message - Message to show in the panel
    */
   private failWith(message: string): void {
+    /*
+     * The recompute this one supersedes may still be in the worker. Without
+     * dropping its bookkeeping its answer would be accepted and would paint
+     * the heatmap of the abandoned settings over the message explaining why
+     * the current ones cannot be drawn.
+     */
+    this.pendingRequestId = null
+    this.pendingRequest = null
+    this.pendingContext = null
     this.layer.setGrid(null)
     this.setStatus({
       isComputing: false,
