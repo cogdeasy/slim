@@ -261,6 +261,24 @@ describe('computeHeatmapGrid', () => {
     const total = response.values.reduce((sum, value) => sum + value, 0)
     expect(total).toBeCloseTo(1, 3)
   })
+
+  it('spreads the mass of an annotation at the rim of the slide too', () => {
+    /*
+     * The kernel reaches past the edge of the slide here, where a blur that
+     * either loses or duplicates what falls outside would make the same
+     * annotation count for less, or for more, than it does in the middle.
+     */
+    const response = computeHeatmapGrid(
+      buildRequest({
+        extent: [0, 0, 9, 9],
+        xy: new Float32Array([0.5, 8.5]),
+        metric: 'density',
+        smoothingSigmaBins: 1,
+      }),
+    )
+    const total = response.values.reduce((sum, value) => sum + value, 0)
+    expect(total).toBeCloseTo(1, 3)
+  })
 })
 
 describe('gaussianBlur', () => {
@@ -275,6 +293,23 @@ describe('gaussianBlur', () => {
     })
     const total = blurred.reduce((sum, value) => sum + value, 0)
     expect(total).toBeCloseTo(100, 3)
+  })
+
+  it('preserves the total mass of a spike in the corner', () => {
+    const source = new Float32Array(9 * 9)
+    source[0] = 100
+    const blurred = gaussianBlur({ source, width: 9, height: 9, sigma: 1 })
+    const total = blurred.reduce((sum, value) => sum + value, 0)
+    expect(total).toBeCloseTo(100, 3)
+  })
+
+  it('leaves a uniform grid uniform, including at its edges', () => {
+    /** Otherwise smoothing would draw a border around every slide. */
+    const source = new Float32Array(9 * 9).fill(5)
+    const blurred = gaussianBlur({ source, width: 9, height: 9, sigma: 1 })
+    for (const value of blurred) {
+      expect(value).toBeCloseTo(5, 3)
+    }
   })
 
   it('spreads a spike over its neighbours', () => {

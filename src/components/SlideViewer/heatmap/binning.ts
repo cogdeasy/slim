@@ -226,13 +226,21 @@ function findValueRange({
 /**
  * Separable Gaussian blur over a row-major float grid.
  *
+ * Bins beyond the edge are mirrored back into the grid, which is the one
+ * treatment of the boundary that both leaves a uniform grid uniform and gives
+ * back the total it was handed. Repeating the edge value instead - the obvious
+ * spelling, `clamp` - does the first but not the second, and lets an
+ * annotation at the rim of a slide count for half again as much as the same
+ * annotation in the middle; padding with zeros does neither, and draws a dark
+ * border around every slide.
+ *
  * @param options - Options
  * @param options.source - Row-major grid
  * @param options.width - Number of columns
  * @param options.height - Number of rows
  * @param options.sigma - Standard deviation in bins
  *
- * @returns A new blurred grid; edges are handled by clamping
+ * @returns A new blurred grid holding the same total as `source`
  */
 export function gaussianBlur({
   source,
@@ -253,7 +261,7 @@ export function gaussianBlur({
     for (let column = 0; column < width; column++) {
       let accumulator = 0
       for (let k = -radius; k <= radius; k++) {
-        const sampleColumn = clamp(column + k, 0, width - 1)
+        const sampleColumn = mirror(column + k, width)
         accumulator += source[rowOffset + sampleColumn] * kernel[k + radius]
       }
       horizontal[rowOffset + column] = accumulator
@@ -264,7 +272,7 @@ export function gaussianBlur({
     for (let column = 0; column < width; column++) {
       let accumulator = 0
       for (let k = -radius; k <= radius; k++) {
-        const sampleRow = clamp(row + k, 0, height - 1)
+        const sampleRow = mirror(row + k, height)
         accumulator +=
           horizontal[sampleRow * width + column] * kernel[k + radius]
       }
@@ -272,6 +280,24 @@ export function gaussianBlur({
     }
   }
   return output
+}
+
+/**
+ * Fold an index that has run off the end of an axis back into it, mirroring
+ * about the outer face of the outermost bin.
+ *
+ * @param index - Index to fold, possibly far outside the axis
+ * @param size - Number of bins along the axis
+ *
+ * @returns An index within the axis
+ */
+function mirror(index: number, size: number): number {
+  if (size === 1) {
+    return 0
+  }
+  const period = 2 * size
+  const folded = ((index % period) + period) % period
+  return folded < size ? folded : period - 1 - folded
 }
 
 /**
