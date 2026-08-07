@@ -74,6 +74,7 @@ export class HeatmapController {
 
   private requestCounter = 0
   private pendingRequestId: number | null = null
+  private pendingRequest: BinningRequest | null = null
   private pendingContext: {
     binSizeUnits: number
     extent: [number, number, number, number]
@@ -118,6 +119,14 @@ export class HeatmapController {
         )
         this.worker?.terminate()
         this.worker = null
+        /*
+         * A request that was in flight when the worker died will never be
+         * answered, so redo it here rather than leaving the panel computing.
+         */
+        const request = this.pendingRequest
+        if (request !== null) {
+          this.handleBinningResponse(computeHeatmapGrid(request))
+        }
       }
     } catch (error) {
       /** Binning then runs on the main thread, which blocks but still works. */
@@ -155,6 +164,7 @@ export class HeatmapController {
       this.debounceHandle = null
     }
     this.pendingRequestId = null
+    this.pendingRequest = null
     this.pendingContext = null
     this.worker?.terminate()
     this.worker = null
@@ -198,10 +208,7 @@ export class HeatmapController {
    * @returns One descriptor per measurement
    */
   listMeasurementsOf(annotationGroupUID: string): MeasurementDescriptor[] {
-    return listMeasurements(
-      this.getMetadata(annotationGroupUID),
-      annotationGroupUID,
-    )
+    return listMeasurementsOfGroup(this.viewer, annotationGroupUID)
   }
 
   /**
@@ -246,6 +253,14 @@ export class HeatmapController {
    * @param annotationGroupUID - Unique identifier of the annotation group
    */
   invalidateAnnotationGroup(annotationGroupUID: string): void {
+    if (this.filteredAnnotationGroupUID === annotationGroupUID) {
+      /*
+       * The layers the filter wrapped are about to be torn down or rebuilt, so
+       * the bookkeeping would otherwise keep pointing at styles that no longer
+       * exist and the rebuilt layers would stay unfiltered.
+       */
+      this.clearAnnotationVisibilityFilter()
+    }
     this.positionCache.delete(annotationGroupUID)
     for (const key of Array.from(this.measurementCache.keys())) {
       if (key.startsWith(`${annotationGroupUID}::`)) {
@@ -305,6 +320,7 @@ export class HeatmapController {
     if (!settings.isVisible) {
       /** Hiding the heatmap must not leave annotations hidden with it. */
       this.pendingRequestId = null
+      this.pendingRequest = null
       this.clearAnnotationVisibilityFilter()
       this.setStatus({ isComputing: false })
       return
@@ -494,6 +510,7 @@ export class HeatmapController {
       smoothingSigmaBins: settings.smoothingSigmaBins,
       filterRange: settings.filterRange,
     }
+    this.pendingRequest = request
 
     if (this.worker !== null) {
       /*
@@ -519,12 +536,19 @@ export class HeatmapController {
     if (context === null) {
       return
     }
+    this.pendingRequest = null
     const grid: HeatmapGrid = {
       values: response.values,
       counts: response.counts,
       width: response.width,
       height: response.height,
-      binSizeUnits: context.binSizeUnits,
+      /*
+       * The effective bin size, which the binner enlarges when the requested
+       * one would exceed the grid dimension cap. Using the requested one here
+       * would shrink the overlay into a corner of the slide and make the hover
+       * readout sample the wrong bin.
+       */
+      binSizeUnits: response.binSizeUnits,
       extent: context.extent,
       minValue: response.minValue,
       maxValue: response.maxValue,
@@ -683,6 +707,28 @@ export class HeatmapController {
     this.filteredAnnotationGroupUID = null
     this.lastAllowed = null
   }
+}
+
+/**
+ * List the measurements of an annotation group.
+ *
+ * A free function so that the sidebar can populate its measurement selector
+ * without a controller, and therefore without constructing a worker and an
+ * OpenLayers layer as a side effect of rendering.
+ *
+ * @param viewer - Volume image viewer
+ * @param annotationGroupUID - Unique identifier of the annotation group
+ *
+ * @returns One descriptor per measurement
+ */
+export function listMeasurementsOfGroup(
+  viewer: dmv.viewer.VolumeImageViewer,
+  annotationGroupUID: string,
+): MeasurementDescriptor[] {
+  const metadata = viewer.getAnnotationGroupMetadata(
+    annotationGroupUID,
+  ) as unknown as AnnotationsMetadataLike
+  return listMeasurements(metadata, annotationGroupUID)
 }
 
 /**

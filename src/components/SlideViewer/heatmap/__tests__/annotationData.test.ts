@@ -498,6 +498,17 @@ describe('decodeBulkDataValues', () => {
     ).toEqual([7, 9])
   })
 
+  it('reads 64-bit integers as integers rather than as doubles', () => {
+    expect(
+      Array.from(
+        decodeBulkDataValues({
+          data: BigUint64Array.from([BigInt(7), BigInt(9)]).buffer,
+          vr: 'OV',
+        }),
+      ),
+    ).toEqual([7, 9])
+  })
+
   it('refuses a value representation it cannot interpret', () => {
     expect(() =>
       decodeBulkDataValues({ data: new ArrayBuffer(4), vr: 'SQ' }),

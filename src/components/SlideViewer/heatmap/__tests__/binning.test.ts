@@ -153,6 +153,19 @@ describe('computeHeatmapGrid', () => {
     expect(response.includedCount).toBe(0)
   })
 
+  it('reports the bin size it actually used, not the requested one', () => {
+    /*
+     * Consumers place the overlay and sample the hover readout with this
+     * value, so reporting the requested size would mis-register the heatmap
+     * whenever the dimension cap forces a coarser grid.
+     */
+    const response = computeHeatmapGrid(
+      buildRequest({ extent: [0, 0, 1e6, 1e6], binSizeUnits: 1 }),
+    )
+    expect(response.binSizeUnits).toBeCloseTo(1e6 / MAX_GRID_DIMENSION)
+    expect(response.width).toBe(MAX_GRID_DIMENSION)
+  })
+
   it('returns an empty grid for empty input', () => {
     const response = computeHeatmapGrid(buildRequest())
     expect(response.includedCount).toBe(0)

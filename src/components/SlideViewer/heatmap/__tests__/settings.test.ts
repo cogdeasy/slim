@@ -62,6 +62,22 @@ describe('applySettingsPatch', () => {
       applySettingsPatch(settings, { clampRange: [2, 8] }).filterRange,
     ).toEqual([1, 5])
   })
+
+  it('drops the filter when the metric stops using a measurement', () => {
+    /*
+     * The filter slider is hidden for the density metric, so a surviving
+     * filter would keep annotations hidden with nothing left to restore them.
+     */
+    expect(
+      applySettingsPatch(settings, { metric: 'density' }).filterRange,
+    ).toBeUndefined()
+  })
+
+  it('keeps the filter across a switch between measurement metrics', () => {
+    expect(applySettingsPatch(settings, { metric: 'max' }).filterRange).toEqual(
+      [1, 5],
+    )
+  })
 })
 
 describe('normalizeFilterRange', () => {

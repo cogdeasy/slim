@@ -533,9 +533,14 @@ export function decodeBulkDataValues({
 }): Float32Array {
   switch (vr) {
     case 'OD':
-    case 'OV':
       return Float32Array.from(
         new Float64Array(data, 0, Math.floor(data.byteLength / 8)),
+      )
+    case 'OV':
+      /** Unsigned 64-bit integers, not doubles: their bit patterns differ. */
+      return Float32Array.from(
+        new BigUint64Array(data, 0, Math.floor(data.byteLength / 8)),
+        (value) => Number(value),
       )
     case 'OL':
       return Float32Array.from(

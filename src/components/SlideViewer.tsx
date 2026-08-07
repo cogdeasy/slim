@@ -77,7 +77,10 @@ import {
   DEFAULT_ROI_STROKE_WIDTH,
 } from './SlideViewer/constants'
 import type { MeasurementDescriptor } from './SlideViewer/heatmap/annotationData'
-import { HeatmapController } from './SlideViewer/heatmap/HeatmapController'
+import {
+  HeatmapController,
+  listMeasurementsOfGroup,
+} from './SlideViewer/heatmap/HeatmapController'
 import { applySettingsPatch } from './SlideViewer/heatmap/settings'
 import {
   DEFAULT_HEATMAP_SETTINGS,
@@ -2462,6 +2465,9 @@ class SlideViewer extends React.Component<SlideViewerProps, SlideViewerState> {
     this.setState(
       (state) => ({
         heatmapSettings: applySettingsPatch(state.heatmapSettings, patch),
+        /** A readout of a hidden heatmap would otherwise stay on screen. */
+        heatmapHoveredValue:
+          patch.isVisible === false ? null : state.heatmapHoveredValue,
       }),
       () => {
         this.getHeatmapController().update(
@@ -4406,7 +4412,8 @@ class SlideViewer extends React.Component<SlideViewerProps, SlideViewerState> {
     let measurements: MeasurementDescriptor[] = []
     if (heatmapSettings.annotationGroupUID !== undefined) {
       try {
-        measurements = this.getHeatmapController().listMeasurementsOf(
+        measurements = listMeasurementsOfGroup(
+          this.volumeViewer,
           heatmapSettings.annotationGroupUID,
         )
       } catch (error) {

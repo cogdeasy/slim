@@ -44,10 +44,16 @@ export function applySettingsPatch(
   if (changesAggregation && patch.clampRange === undefined) {
     updated.clampRange = undefined
   }
+  /*
+   * The filter slider is only offered for metrics that aggregate a
+   * measurement, so a filter that survived a switch to the density metric
+   * would keep annotations hidden with no control left to restore them.
+   */
   if (
     (patch.measurement !== undefined ||
       patch.annotationGroupUID !== undefined ||
-      patch.sourceKind !== undefined) &&
+      patch.sourceKind !== undefined ||
+      !requiresMeasurement(updated.metric)) &&
     patch.filterRange === undefined
   ) {
     updated.filterRange = undefined
