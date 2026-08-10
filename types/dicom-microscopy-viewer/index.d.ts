@@ -239,8 +239,10 @@ declare module 'dicom-microscopy-viewer' {
       ): metadata.MicroscopyBulkSimpleAnnotations
       toggleICCProfiles (): void;
       getICCProfiles (): any[];
-      setPaletteDisplayGammaCorrectionEnabled (enabled: boolean): void;
-      getPaletteDisplayGammaCorrectionEnabled (): boolean;
+      /** Only implemented by dicom-microscopy-viewer builds that support
+       * palette display gamma compensation; absent in the published 0.48.x line. */
+      setPaletteDisplayGammaCorrectionEnabled?: (enabled: boolean) => void;
+      getPaletteDisplayGammaCorrectionEnabled?: () => boolean;
       toggleSegmentationInterpolation (): void;
       toggleParametricMapInterpolation (): void;
     }
