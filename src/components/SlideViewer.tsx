@@ -34,6 +34,7 @@ import {
   FaSave,
   FaTrash,
 } from 'react-icons/fa'
+import { PanelsCollapseObserver } from '../contexts/PanelsContext'
 import { SettingsRegistration } from '../contexts/SettingsContext'
 import { runValidations } from '../contexts/ValidationContext'
 import { StorageClasses } from '../data/uids'
@@ -60,6 +61,7 @@ import { findContentItemsByName } from '../utils/sr'
 import AnnotationGroupList from './AnnotationGroupList'
 import AnnotationList from './AnnotationList'
 import Btn from './Button'
+import { PANEL_TRANSITION_DURATION } from './CollapsiblePanel'
 import Equipment from './Equipment'
 import HoveredRoiTooltip from './HoveredRoiTooltip'
 import MappingList from './MappingList'
@@ -1550,6 +1552,17 @@ class SlideViewer extends React.Component<SlideViewerProps, SlideViewerState> {
     if (this.labelViewer !== null && this.labelViewer !== undefined) {
       this.labelViewer.resize()
     }
+  }
+
+  onPanelCollapseChange = (): void => {
+    // Give the panels time to complete their transition before updating the
+    // size of the viewports
+    setTimeout(() => {
+      this.volumeViewer.resize()
+      if (this.labelViewer !== null && this.labelViewer !== undefined) {
+        this.labelViewer.resize()
+      }
+    }, PANEL_TRANSITION_DURATION)
   }
 
   onRoiDrawn = (event: CustomEventInit): void => {
@@ -4853,6 +4866,7 @@ class SlideViewer extends React.Component<SlideViewerProps, SlideViewerState> {
         <SettingsRegistration
           onOpenSettings={() => this.setState({ isSettingsDrawerOpen: true })}
         />
+        <PanelsCollapseObserver onCollapseChange={this.onPanelCollapseChange} />
         <SlideViewerContent
           toolbar={toolbar}
           toolbarHeight={toolbarHeight}
