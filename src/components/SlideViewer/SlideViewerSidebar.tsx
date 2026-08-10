@@ -19,6 +19,7 @@ interface SlideViewerSidebarProps {
   presentationStateMenu: React.ReactNode
   annotationMenuItems: React.ReactNode
   annotationGroupMenu: React.ReactNode
+  heatmapMenu: React.ReactNode
   segmentationMenu: React.ReactNode
   parametricMapMenu: React.ReactNode
   annotations: AnnotationCategoryAndType[]
@@ -53,6 +54,7 @@ const SlideViewerSidebar: React.FC<SlideViewerSidebarProps> = ({
   presentationStateMenu,
   annotationMenuItems,
   annotationGroupMenu,
+  heatmapMenu,
   segmentationMenu,
   parametricMapMenu,
   annotations,
@@ -106,6 +108,7 @@ const SlideViewerSidebar: React.FC<SlideViewerSidebarProps> = ({
           {annotationMenuItems}
         </Menu.SubMenu>
         {annotationGroupMenu}
+        {heatmapMenu}
         {annotations.length === 0 ? null : (
           <Menu.SubMenu
             key="annotation-categories"
