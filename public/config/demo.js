@@ -1,5 +1,9 @@
 window.config = {
   path: '/slim',
+  // dicom-microscopy-viewer resolves its web worker relative to `path`, which
+  // drops the last segment when it has no trailing slash. Point it at the
+  // bundle directory explicitly so the worker loads under a path prefix.
+  publicLibPath: '/slim/static/js/',
   servers: [
     {
       id: 'demo',

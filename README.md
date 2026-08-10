@@ -290,12 +290,19 @@ To learn how to deploy Slim as a Google Firebase web app, see [this tutorial](ht
 
 ### GitHub Pages
 
-`pnpm run predeploy` builds the demo configuration for a site served under the `/slim/` path prefix, which is where GitHub Pages serves a repository named `slim`. A fork keeps that name by default and needs no changes. A fork under a *different* repository name is served from `https://<owner>.github.io/<repo>/` and must override both the asset prefix and the router basename, otherwise assets resolve to `/slim/...` and 404:
+`pnpm run predeploy` builds the demo configuration for a site served under the `/slim/` path prefix, which is where GitHub Pages serves a repository named `slim`. A fork keeps that name by default and needs no changes. A fork under a *different* repository name is served from `https://<owner>.github.io/<repo>/` and must override the asset prefix, the router basename, and the viewer library path, otherwise assets resolve to `/slim/...` and 404:
 
 ```bash
 PUBLIC_URL=/<repo>/ pnpm run predeploy   # asset prefix
-# and set `path: '/<repo>'` in the deployed public/config/demo.js
+# and in the deployed public/config/demo.js, set
+#   path: '/<repo>'                      # router basename
+#   publicLibPath: '/<repo>/static/js/'  # dicom-microscopy-viewer web worker
 ```
+
+`publicLibPath` is needed because `dicom-microscopy-viewer` resolves its web worker
+relative to `path`, which drops the last segment when it has no trailing slash: under
+`/slim` it would request `/static/js/dataLoader.worker.min.js` and 404, leaving the
+viewer with a blank canvas.
 
 Note that GitHub disables Actions on new forks, so `deploy-to-github-pages.yml` will not run until workflows are enabled in the fork's Actions tab and a Pages site is configured under Settings → Pages.
 
