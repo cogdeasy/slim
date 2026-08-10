@@ -80,10 +80,14 @@ export const constructViewers = ({
 
     return { volumeViewer, labelViewer }
   } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error)
     // eslint-disable-next-line @typescript-eslint/no-floating-promises
     NotificationMiddleware.onError(
       NotificationMiddlewareContext.SLIM,
-      new CustomError(errorTypes.VISUALIZATION, 'Failed to instantiate viewer'),
+      new CustomError(
+        errorTypes.VISUALIZATION,
+        `Failed to instantiate viewer: ${reason}`,
+      ),
     )
     throw error
   }

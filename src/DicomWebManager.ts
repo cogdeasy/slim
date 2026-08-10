@@ -6,7 +6,11 @@ import * as dcmjs from 'dcmjs'
 import * as dmv from 'dicom-microscopy-viewer'
 import * as dwc from 'dicomweb-client'
 
-import type { DicomWebManagerErrorHandler, ServerSettings } from './AppConfig'
+import type {
+  DicomWebManagerErrorHandler,
+  RetryRequestSettings,
+  ServerSettings,
+} from './AppConfig'
 import DicomMetadataStore, {
   type Instance,
 } from './services/DICOMMetadataStore'
@@ -14,8 +18,12 @@ import NotificationMiddleware, {
   NotificationMiddlewareContext,
 } from './services/NotificationMiddleware'
 import { CustomError, errorTypes } from './utils/CustomError'
+import { resolveRetrySettings, retryRequest } from './utils/retryRequest'
 import { joinUrl } from './utils/url'
-import getXHRRetryHook from './utils/xhrRetryHook'
+import {
+  PARTIAL_IMAGE_FAILURE,
+  type UserFacingError,
+} from './utils/userFacingErrors'
 
 const { naturalizeDataset } = dcmjs.data.DicomMetaDictionary
 
@@ -24,6 +32,7 @@ interface Store {
   read: boolean
   write: boolean
   client: dwc.api.DICOMwebClient
+  retrySettings: Required<RetryRequestSettings>
 }
 
 export default class DicomWebManager implements dwc.api.DICOMwebClient {
@@ -114,10 +123,6 @@ export default class DicomWebManager implements dwc.api.DICOMwebClient {
         }
       }
 
-      if (serverSettings.retry !== undefined) {
-        clientSettings.requestHooks = [getXHRRetryHook(serverSettings.retry)]
-      }
-
       clientSettings.errorInterceptor = (
         error: dwc.api.DICOMwebClientError,
       ) => {
@@ -129,6 +134,7 @@ export default class DicomWebManager implements dwc.api.DICOMwebClient {
         write: serverSettings.write ?? false,
         read: serverSettings.read ?? true,
         client: new dwc.api.DICOMwebClient(clientSettings),
+        retrySettings: resolveRetrySettings(serverSettings.retry),
       })
     })
 
@@ -140,6 +146,42 @@ export default class DicomWebManager implements dwc.api.DICOMwebClient {
           'Only one store is supported for now.',
         ),
       )
+    }
+  }
+
+  /**
+   * Performs a request against the store, retries it for failures that may be
+   * transient and reports the failure to the user if it persists.
+   *
+   * @param description - description of the request, used for logging
+   * @param request - function performing the request
+   * @param options.userFacingError - description to present to the user
+   * instead of the one derived from the error, used where a failure only
+   * degrades the display
+   * @param options.retry - whether the request may be repeated
+   * @returns result of the request
+   */
+  private readonly request = async <T>(
+    description: string,
+    request: () => Promise<T>,
+    options: { userFacingError?: UserFacingError; retry?: boolean } = {},
+  ): Promise<T> => {
+    const { userFacingError, retry = true } = options
+    try {
+      return await retryRequest({
+        description,
+        settings: retry
+          ? this.stores[0].retrySettings
+          : { ...this.stores[0].retrySettings, retries: 0 },
+        request,
+      })
+    } catch (error) {
+      NotificationMiddleware.onError(
+        NotificationMiddlewareContext.DICOMWEB,
+        error as Error,
+        userFacingError,
+      )
+      throw error
     }
   }
 
@@ -161,7 +203,11 @@ export default class DicomWebManager implements dwc.api.DICOMwebClient {
     options: dwc.api.StoreInstancesOptions,
   ): Promise<void> => {
     if (this.stores[0].write) {
-      return await this.stores[0].client.storeInstances(options)
+      return await this.request(
+        'storage of instances',
+        async () => await this.stores[0].client.storeInstances(options),
+        { retry: false },
+      )
     } else {
       return await Promise.reject(new Error('Store is not writable.'))
     }
@@ -170,26 +216,37 @@ export default class DicomWebManager implements dwc.api.DICOMwebClient {
   searchForStudies = async (
     options: dwc.api.SearchForStudiesOptions,
   ): Promise<dwc.api.Study[]> => {
-    return await this.stores[0].client.searchForStudies(options)
+    return await this.request(
+      'search for studies',
+      async () => await this.stores[0].client.searchForStudies(options),
+    )
   }
 
   searchForSeries = async (
     options: dwc.api.SearchForSeriesOptions,
   ): Promise<dwc.api.Series[]> => {
-    return await this.stores[0].client.searchForSeries(options)
+    return await this.request(
+      'search for series',
+      async () => await this.stores[0].client.searchForSeries(options),
+    )
   }
 
   searchForInstances = async (
     options: dwc.api.SearchForInstancesOptions,
   ): Promise<dwc.api.Instance[]> => {
-    return await this.stores[0].client.searchForInstances(options)
+    return await this.request(
+      'search for instances',
+      async () => await this.stores[0].client.searchForInstances(options),
+    )
   }
 
   retrieveStudyMetadata = async (
     options: dwc.api.RetrieveStudyMetadataOptions,
   ): Promise<dwc.api.Metadata[]> => {
-    const studySummaryMetadata =
-      await this.stores[0].client.retrieveStudyMetadata(options)
+    const studySummaryMetadata = await this.request(
+      `retrieval of metadata of study "${options.studyInstanceUID}"`,
+      async () => await this.stores[0].client.retrieveStudyMetadata(options),
+    )
     const naturalized = naturalizeDataset(studySummaryMetadata)
     DicomMetadataStore.addStudy(naturalized as Record<string, unknown>)
     return studySummaryMetadata
@@ -198,8 +255,10 @@ export default class DicomWebManager implements dwc.api.DICOMwebClient {
   retrieveSeriesMetadata = async (
     options: dwc.api.RetrieveSeriesMetadataOptions,
   ): Promise<dwc.api.Metadata[]> => {
-    const seriesSummaryMetadata =
-      await this.stores[0].client.retrieveSeriesMetadata(options)
+    const seriesSummaryMetadata = await this.request(
+      `retrieval of metadata of series "${options.seriesInstanceUID}"`,
+      async () => await this.stores[0].client.retrieveSeriesMetadata(options),
+    )
     const naturalized = seriesSummaryMetadata.map(naturalizeDataset)
     DicomMetadataStore.addSeriesMetadata(
       naturalized as Array<Record<string, unknown>>,
@@ -211,13 +270,19 @@ export default class DicomWebManager implements dwc.api.DICOMwebClient {
   retrieveInstanceMetadata = async (
     options: dwc.api.RetrieveInstanceMetadataOptions,
   ): Promise<dwc.api.Metadata[]> => {
-    return await this.stores[0].client.retrieveInstanceMetadata(options)
+    return await this.request(
+      `retrieval of metadata of instance "${options.sopInstanceUID}"`,
+      async () => await this.stores[0].client.retrieveInstanceMetadata(options),
+    )
   }
 
   retrieveInstance = async (
     options: dwc.api.RetrieveInstanceOptions,
   ): Promise<dwc.api.Dataset> => {
-    const instance = await this.stores[0].client.retrieveInstance(options)
+    const instance = await this.request(
+      `retrieval of instance "${options.sopInstanceUID}"`,
+      async () => await this.stores[0].client.retrieveInstance(options),
+    )
     const data = dcmjs.data.DicomMessage.readFile(instance)
     const { dataset } = dmv.metadata.formatMetadata(data.dict)
     DicomMetadataStore.addInstances([dataset as Instance])
@@ -227,24 +292,47 @@ export default class DicomWebManager implements dwc.api.DICOMwebClient {
   retrieveInstanceFrames = async (
     options: dwc.api.RetrieveInstanceFramesOptions,
   ): Promise<dwc.api.Pixeldata[]> => {
-    return await this.stores[0].client.retrieveInstanceFrames(options)
+    return await this.request(
+      `retrieval of frames of instance "${options.sopInstanceUID}"`,
+      async () => await this.stores[0].client.retrieveInstanceFrames(options),
+      { userFacingError: PARTIAL_IMAGE_FAILURE },
+    )
   }
 
   retrieveInstanceRendered = async (
     options: dwc.api.RetrieveInstanceRenderedOptions,
   ): Promise<dwc.api.Pixeldata> => {
-    return await this.stores[0].client.retrieveInstanceRendered(options)
+    return await this.request(
+      `retrieval of rendered instance "${options.sopInstanceUID}"`,
+      async () => await this.stores[0].client.retrieveInstanceRendered(options),
+      { userFacingError: PARTIAL_IMAGE_FAILURE },
+    )
   }
 
   retrieveInstanceFramesRendered = async (
     options: dwc.api.RetrieveInstanceFramesRenderedOptions,
   ): Promise<dwc.api.Pixeldata> => {
-    return await this.stores[0].client.retrieveInstanceFramesRendered(options)
+    return await this.request(
+      `retrieval of rendered frames of instance "${options.sopInstanceUID}"`,
+      async () =>
+        await this.stores[0].client.retrieveInstanceFramesRendered(options),
+      { userFacingError: PARTIAL_IMAGE_FAILURE },
+    )
   }
 
   retrieveBulkData = async (
     options: dwc.api.RetrieveBulkDataOptions,
   ): Promise<dwc.api.Bulkdata[]> => {
-    return await this.stores[0].client.retrieveBulkData(options)
+    /**
+     * Bulkdata is retrieved for optional parts of a slide such as ICC
+     * profiles. Failures are reported by the components that requested them,
+     * which know what the missing data means for the user.
+     */
+    return await retryRequest({
+      description: 'retrieval of bulkdata',
+      settings: this.stores[0].retrySettings,
+      request: async () =>
+        await this.stores[0].client.retrieveBulkData(options),
+    })
   }
 }

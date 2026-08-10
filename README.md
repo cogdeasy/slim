@@ -160,6 +160,33 @@ Custom selections are stored in `localStorage`, re-apply the current Bearer toke
 
 See [docs/CONFIGURATION.md](docs/CONFIGURATION.md#runtime-server-selection-header-button) for details.
 
+### Error reporting and request retries
+
+Failures are reported to the user in plain language rather than only on the console: a toast summarises what failed and whether the displayed slide is still complete, the header bug icon collects the details, and a slide that cannot be displayed is replaced by an explanation instead of a blank viewport.
+
+DICOMweb requests are retried before a failure is reported, including on `404` ([issue #106](https://github.com/ImagingDataCommons/slim/issues/106)). Retrying is configured per server; unspecified options fall back to the defaults:
+
+```js
+window.config = {
+  servers: [
+    {
+      id: "local",
+      url: "https://your-server.com/dcm4chee-arc/aets/MYAET/rs",
+      retry: {
+        retries: 3,
+        factor: 2,
+        minTimeout: 1000,
+        maxTimeout: 8000,
+        randomize: true,
+        retryableStatusCodes: [0, 404, 408, 429, 500, 502, 503, 504],
+      },
+    },
+  ],
+}
+```
+
+Set `retries: 0` to disable retrying. STOW-RS requests are never retried. See [docs/CONFIGURATION.md](docs/CONFIGURATION.md#error-reporting-and-request-retries) for details.
+
 ### Handling mixed content and HTTPS
 
 When deploying Slim with HTTPS, you may encounter mixed content scenarios where your PACS/VNA server returns HTTP URLs in its responses. This commonly occurs when:
@@ -266,6 +293,7 @@ The following topics are documented in [docs/CONFIGURATION.md](docs/CONFIGURATIO
 | Runtime server selection (header button) | `enableServerSelection` |
 | Secondary GCP annotation store | `?gcp=<dicomWeb-url>` query parameter |
 | Annotation / finding colors | `annotations[].style` |
+| Error reporting and request retries | `servers[].retry` |
 | Read-only annotation UI | `disableAnnotationTools` |
 | Hide study worklist | `disableWorklist` |
 | Local Orthanc / CORS troubleshooting | see [Local deployment tips](docs/CONFIGURATION.md#local-deployment-tips) |

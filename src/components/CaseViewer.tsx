@@ -11,11 +11,14 @@ import type { Slide } from '../data/slides'
 import { StorageClasses } from '../data/uids'
 import { useSlides } from '../hooks/useSlides'
 import { type RouteComponentProps, withRouter } from '../utils/router'
+import { ErrorImpact } from '../utils/userFacingErrors'
 import ClinicalTrial from './ClinicalTrial'
 import Patient from './Patient'
 import SlideList from './SlideList'
 import SlideViewer from './SlideViewer'
 import Study from './Study'
+import ViewerErrorBoundary from './ViewerErrorBoundary'
+import ViewerErrorState from './ViewerErrorState'
 
 const { naturalizeDataset } = dcmjs.data.DicomMetaDictionary
 
@@ -85,6 +88,7 @@ function ParametrizedSlideViewer({
   )
   const [derivedDataset, setDerivedDataset] =
     useState<NaturalizedInstance | null>(null)
+  const [seriesError, setSeriesError] = useState<Error | null>(null)
 
   useEffect(() => {
     const currentSlideMatchesSeries =
@@ -97,6 +101,7 @@ function ParametrizedSlideViewer({
       selectedSlide === undefined ||
       !currentSlideMatchesSeries
     ) {
+      setSeriesError(null)
       const imageSlide = findSeriesSlide(slides, seriesInstanceUID)
       if (imageSlide !== null && imageSlide !== undefined) {
         setSelectedSlide(imageSlide)
@@ -158,7 +163,10 @@ function ParametrizedSlideViewer({
         }
       }
 
-      void findReferencedSlide()
+      /** The failure itself has already been reported by DicomWebManager. */
+      findReferencedSlide().catch((error: Error) => {
+        setSeriesError(error)
+      })
     }
   }, [slides, clients, studyInstanceUID, seriesInstanceUID, selectedSlide])
 
@@ -169,22 +177,28 @@ function ParametrizedSlideViewer({
     presentationStateUID = stateParam !== null ? stateParam : undefined
   }
 
+  if (selectedSlide == null && seriesError !== null) {
+    return <ViewerErrorState error={seriesError} />
+  }
+
   let viewer = null
   if (selectedSlide != null && selectedSlide !== undefined) {
     viewer = (
-      <SlideViewer
-        clients={clients}
-        studyInstanceUID={studyInstanceUID}
-        seriesInstanceUID={seriesInstanceUID}
-        selectedPresentationStateUID={presentationStateUID}
-        slide={selectedSlide}
-        preload={preload}
-        annotations={annotations}
-        enableAnnotationTools={enableAnnotationTools}
-        app={app}
-        user={user}
-        derivedDataset={derivedDataset ?? undefined}
-      />
+      <ViewerErrorBoundary>
+        <SlideViewer
+          clients={clients}
+          studyInstanceUID={studyInstanceUID}
+          seriesInstanceUID={seriesInstanceUID}
+          selectedPresentationStateUID={presentationStateUID}
+          slide={selectedSlide}
+          preload={preload}
+          annotations={annotations}
+          enableAnnotationTools={enableAnnotationTools}
+          app={app}
+          user={user}
+          derivedDataset={derivedDataset ?? undefined}
+        />
+      </ViewerErrorBoundary>
     )
   }
   return viewer
@@ -207,7 +221,7 @@ interface ViewerProps extends RouteComponentProps {
 
 function Viewer(props: ViewerProps): JSX.Element | null {
   const { clients, studyInstanceUID, location, navigate } = props
-  const { slides, isLoading } = useSlides({ clients, studyInstanceUID })
+  const { slides, isLoading, error } = useSlides({ clients, studyInstanceUID })
 
   const handleSeriesSelection = ({
     seriesInstanceUID,
@@ -244,14 +258,38 @@ function Viewer(props: ViewerProps): JSX.Element | null {
     return null
   }
 
+  if (error !== null) {
+    return <ViewerErrorState error={error} />
+  }
+
   if (slides.length === 0) {
-    return null
+    return (
+      <ViewerErrorState
+        userFacingError={{
+          title: 'No slides found for this study',
+          description:
+            'The server did not return any slide microscopy images for this study. It may contain other kinds of images only, or the data may have been removed. Go back to the worklist and select another study.',
+          impact: ErrorImpact.BLOCKED,
+          isTransient: false,
+        }}
+      />
+    )
   }
 
   const firstSlide = slides[0]
   const volumeInstances = firstSlide.volumeImages
   if (volumeInstances.length === 0) {
-    return null
+    return (
+      <ViewerErrorState
+        userFacingError={{
+          title: 'This slide has no displayable images',
+          description:
+            'The slide of this study does not contain any image that can be displayed. Go back to the worklist and select another study.',
+          impact: ErrorImpact.BLOCKED,
+          isTransient: false,
+        }}
+      />
+    )
   }
   const refImage = volumeInstances[0]
 

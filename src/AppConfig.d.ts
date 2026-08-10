@@ -11,13 +11,26 @@ export interface DICOMwebClientRequestHookMetadata {
   method: string
 }
 
+/**
+ * Retry behaviour of DICOMweb requests. Any option that is not specified falls
+ * back to the default (see `defaultRetrySettings`).
+ */
 export interface RetryRequestSettings {
+  /** Number of retries after the initial attempt (0 disables retrying). */
   retries?: number
+  /** Exponential backoff factor. */
   factor?: number
+  /** Minimum number of milliseconds to wait before the next retry. */
   minTimeout?: number
+  /** Maximum number of milliseconds to wait before the next retry. */
   maxTimeout?: number
+  /** Whether the wait time should be randomized. */
   randomize?: boolean
-  retryableStatusCodes: number[]
+  /**
+   * HTTP status codes that trigger a retry. A status of 0 means that the
+   * server could not be reached.
+   */
+  retryableStatusCodes?: number[]
 }
 
 export interface EvaluationSetting {

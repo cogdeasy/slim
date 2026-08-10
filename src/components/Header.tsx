@@ -36,6 +36,10 @@ import NotificationMiddleware, {
 import type { CustomError } from '../utils/CustomError'
 import { type RouteComponentProps, withRouter } from '../utils/router'
 import { normalizeServerUrl } from '../utils/url'
+import {
+  getImpactStatement,
+  type UserFacingError,
+} from '../utils/userFacingErrors'
 import Button from './Button'
 import DicomTagBrowser from './DicomTagBrowser/DicomTagBrowser'
 
@@ -142,6 +146,58 @@ function HeaderCountBadge({
   )
 }
 
+interface DebugErrorEntry {
+  userFacingError: UserFacingError
+  detail: string
+  count: number
+}
+
+/**
+ * Renders the errors of one category, plain-language message first and
+ * technical detail underneath for developers.
+ */
+function DebugErrorList({
+  entries,
+}: {
+  entries: DebugErrorEntry[]
+}): JSX.Element {
+  if (entries.length === 0) {
+    return (
+      <Typography.Text type="secondary">No problems reported.</Typography.Text>
+    )
+  }
+
+  return (
+    <ol>
+      {entries.map((entry) => {
+        const impactStatement = getImpactStatement(entry.userFacingError.impact)
+        return (
+          <li key={uuidv4()} style={{ marginBottom: 12 }}>
+            <Typography.Text strong>
+              {entry.userFacingError.title}
+              {entry.count > 1 ? ` (${entry.count}\u00d7)` : ''}
+            </Typography.Text>
+            <div>{entry.userFacingError.description}</div>
+            {impactStatement !== '' ? (
+              <div>
+                <Typography.Text type="secondary">
+                  {impactStatement}
+                </Typography.Text>
+              </div>
+            ) : null}
+            <Typography.Text code style={{ fontSize: '0.85rem' }}>
+              {entry.detail}
+            </Typography.Text>
+          </li>
+        )
+      })}
+    </ol>
+  )
+}
+
+const countErrors = (entries: DebugErrorEntry[]): number =>
+  entries.reduce((total, entry) => total + entry.count, 0)
+
 interface HeaderProps extends RouteComponentProps {
   app: {
     name: string
@@ -161,6 +217,7 @@ interface HeaderProps extends RouteComponentProps {
 
 interface ExtendedCustomError extends CustomError {
   source: string
+  userFacingError: UserFacingError
 }
 
 interface HeaderState {
@@ -205,14 +262,30 @@ class Header extends React.Component<HeaderProps, HeaderState> {
     const onErrorHandler = ({
       source,
       error,
+      category,
+      userFacingError,
     }: {
       source: string
       error: CustomError
+      category: string
+      userFacingError: UserFacingError
     }): void => {
       this.setState((state) => ({
         ...state,
-        errorObj: [...state.errorObj, { ...error, source }],
-        errorCategory: [...state.errorCategory, error.type],
+        errorObj: [
+          ...state.errorObj,
+          /**
+           * The message of a native error is not enumerable and would be lost
+           * when the error is copied, so it is carried over explicitly.
+           */
+          {
+            ...error,
+            message: error.message ?? String(error),
+            source,
+            userFacingError,
+          },
+        ],
+        errorCategory: [...state.errorCategory, category],
       }))
     }
 
@@ -454,10 +527,10 @@ class Header extends React.Component<HeaderProps, HeaderState> {
 
   handleDebugButtonClick = (): void => {
     const errorMsgs: {
-      Authentication: string[]
-      Communication: string[]
-      EncodingDecoding: string[]
-      Visualization: string[]
+      Authentication: DebugErrorEntry[]
+      Communication: DebugErrorEntry[]
+      EncodingDecoding: DebugErrorEntry[]
+      Visualization: DebugErrorEntry[]
     } = {
       Authentication: [],
       Communication: [],
@@ -471,11 +544,19 @@ class Header extends React.Component<HeaderProps, HeaderState> {
     if (errorNum > 0) {
       for (let i = 0; i < errorNum; i++) {
         const category = this.state.errorCategory[i] as ObjectKey
-        errorMsgs[category].push(
-          `${this.state.errorObj[i].message as string} (Source: ${
-            this.state.errorObj[i].source
-          })`,
-        )
+        const error = this.state.errorObj[i]
+        const detail = `${error.message as string} (Source: ${error.source})`
+        const entries = errorMsgs[category]
+        const existing = entries.find((entry) => entry.detail === detail)
+        if (existing !== undefined) {
+          existing.count += 1
+        } else {
+          entries.push({
+            userFacingError: error.userFacingError,
+            detail,
+            count: 1,
+          })
+        }
       }
     }
 
@@ -493,53 +574,37 @@ class Header extends React.Component<HeaderProps, HeaderState> {
     )
 
     Modal.info({
-      title: 'Debug Information\n (Check console for more information)',
+      title: 'Problems reported\n (Check console for more information)',
       width: 800,
       content: (
         <Collapse>
           <Panel
             header="Communication Error"
             key="communicationerror"
-            extra={showErrorCount(errorMsgs.Communication.length)}
+            extra={showErrorCount(countErrors(errorMsgs.Communication))}
           >
-            <ol>
-              {errorMsgs.Communication.map((e) => (
-                <li key={uuidv4()}>{e}</li>
-              ))}
-            </ol>
+            <DebugErrorList entries={errorMsgs.Communication} />
           </Panel>
           <Panel
             header="Data Encoding/Decoding error"
             key="encodedecodeerror"
-            extra={showErrorCount(errorMsgs.EncodingDecoding.length)}
+            extra={showErrorCount(countErrors(errorMsgs.EncodingDecoding))}
           >
-            <ol>
-              {errorMsgs.EncodingDecoding.map((e) => (
-                <li key={uuidv4()}>{e}</li>
-              ))}
-            </ol>
+            <DebugErrorList entries={errorMsgs.EncodingDecoding} />
           </Panel>
           <Panel
             header="Visualization error"
             key="visualizationerror"
-            extra={showErrorCount(errorMsgs.Visualization.length)}
+            extra={showErrorCount(countErrors(errorMsgs.Visualization))}
           >
-            <ol>
-              {errorMsgs.Visualization.map((e) => (
-                <li key={uuidv4()}>{e}</li>
-              ))}
-            </ol>
+            <DebugErrorList entries={errorMsgs.Visualization} />
           </Panel>
           <Panel
             header="Authentication error"
             key="autherror"
-            extra={showErrorCount(errorMsgs.Authentication.length)}
+            extra={showErrorCount(countErrors(errorMsgs.Authentication))}
           >
-            <ol>
-              {errorMsgs.Authentication.map((e) => (
-                <li key={uuidv4()}>{e}</li>
-              ))}
-            </ol>
+            <DebugErrorList entries={errorMsgs.Authentication} />
           </Panel>
           <Panel
             header="Warning"

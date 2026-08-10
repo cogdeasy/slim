@@ -16,6 +16,7 @@ Example configs live in [`public/config/`](../public/config/).
 - [Runtime server selection (header button)](#runtime-server-selection-header-button)
 - [Secondary GCP data source (`gcp` query parameter)](#secondary-gcp-data-source-gcp-query-parameter)
 - [Annotation colors](#annotation-colors)
+- [Error reporting and request retries](#error-reporting-and-request-retries)
 - [Read-only mode and worklist](#read-only-mode-and-worklist)
 - [Local deployment tips](#local-deployment-tips)
 - [Related documentation](#related-documentation)
@@ -247,6 +248,55 @@ not all restyle immediately.
   `[0, 153, 255]` (alpha 1) and is **not** configurable via `window.config`.
 - **Bulk ANN hover highlight** uses dmv’s `highlightColor` (default
   `[140, 184, 198]`), which is separate from Slim’s ROI selection style.
+
+## Error reporting and request retries
+
+Failures are reported to the user in plain language: transient or partial
+failures appear as a toast and are collected behind the bug icon in the header,
+while failures that prevent a slide from being displayed replace the viewport
+with an explanation instead of a blank canvas. The technical error stays
+available in the console and in the detail view behind the header icon.
+
+DICOMweb requests are retried before a failure is reported. Retrying also
+covers `404`, because archives may answer with `404` while data is still being
+ingested (see [issue #106](https://github.com/ImagingDataCommons/slim/issues/106)).
+Retrying is configured per server with `servers[].retry`; every option is
+optional and falls back to the default:
+
+```js
+window.config = {
+  // ...
+  servers: [
+    {
+      id: 'local',
+      url: 'http://localhost:8008/dcm4chee-arc/aets/DCM4CHEE/rs',
+      write: true,
+      retry: {
+        retries: 3,
+        factor: 2,
+        minTimeout: 1000,
+        maxTimeout: 8000,
+        randomize: true,
+        retryableStatusCodes: [0, 404, 408, 429, 500, 502, 503, 504],
+      },
+    },
+  ],
+}
+```
+
+| Option | Default | Description |
+| --- | --- | --- |
+| `retries` | `3` | Number of retries after the initial attempt. `0` disables retrying. |
+| `factor` | `2` | Exponential backoff factor. |
+| `minTimeout` | `1000` | Minimum wait before the next retry, in milliseconds. |
+| `maxTimeout` | `8000` | Maximum wait before the next retry, in milliseconds. |
+| `randomize` | `true` | Whether the wait is randomized. |
+| `retryableStatusCodes` | `[0, 404, 408, 429, 500, 502, 503, 504]` | Status codes that trigger a retry. `0` means the server could not be reached. |
+
+STOW-RS requests are never retried, so that instances are not stored twice.
+
+`servers[].errorMessages` remains available to show a server-specific message
+for a given status code instead of the generic one.
 
 ## Read-only mode and worklist
 
