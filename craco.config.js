@@ -3,6 +3,13 @@ const path = require('path')
 const CracoLessPlugin = require('craco-less')
 const CopyWebpackPlugin = require('copy-webpack-plugin')
 
+/** Philips brand palette. */
+const BRAND = {
+  blue: '#0b5ed7',
+  blueTint: '#e8f0fd',
+  blueMuted: '#7ba4e8'
+}
+
 /**
  * When dicom-microscopy-viewer is pnpm-linked, resolve the real repo path so
  * webpack can watch DMV dist/ rebuilds. The import alias must stay under
@@ -38,10 +45,10 @@ module.exports = {
         lessLoaderOptions: {
           lessOptions: {
             modifyVars: {
-              '@layout-header-background': '#007ea3',
-              '@primary-color': '#007ea3',
-              '@collapse-header-bg': '#e0f2f7',
-              '@processing-color': '#8cb8c6',
+              '@layout-header-background': BRAND.blue,
+              '@primary-color': BRAND.blue,
+              '@collapse-header-bg': BRAND.blueTint,
+              '@processing-color': BRAND.blueMuted,
               '@success-color': '#3f9c35',
               '@warning-color': '#eeaf30',
               '@error-color': '#96172e',

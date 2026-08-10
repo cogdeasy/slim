@@ -19,7 +19,7 @@
 
 /* Border at the end of the settings sections */
 .slim-settings-menu.ant-menu-inline > .ant-menu-submenu:last-child {
-  border-bottom: 1px solid rgba(0, 126, 163, 0.5);
+  border-bottom: 1px solid var(--slim-section-divider);
 }
 
 .slim-settings-menu.ant-menu-inline .ant-menu-sub {
