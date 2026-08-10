@@ -4,6 +4,7 @@ declare module 'dicom-microscopy-viewer' {
   import * as dwc from 'dicomweb-client'
   // skipcq: JS-C1003
   import * as dcmjs from 'dcmjs'
+  import type OlMap from 'ol/Map'
   import { CustomError } from '../../src/utils/CustomError'
 
   declare namespace viewer {
@@ -52,6 +53,8 @@ declare module 'dicom-microscopy-viewer' {
     export class VolumeImageViewer {
       constructor (options: VolumeImageViewerOptions)
       render (options: object): void
+      /** Internal OpenLayers map, for finer grained control over the display */
+      getMap (): OlMap
       navigate (options: { level?: number, position?: number[] })
       cleanup (): void
       get numLevels (): number

@@ -27,6 +27,7 @@ import React from 'react'
 import {
   FaCrosshairs,
   FaDrawPolygon,
+  FaExpand,
   FaEye,
   FaEyeSlash,
   FaHandPaper,
@@ -74,6 +75,7 @@ import {
   DEFAULT_ROI_RADIUS,
   DEFAULT_ROI_STROKE_COLOR,
   DEFAULT_ROI_STROKE_WIDTH,
+  VIEW_RESET_ANIMATION_DURATION,
 } from './SlideViewer/constants'
 import SlideViewerContent from './SlideViewer/SlideViewerContent'
 import SlideViewerModals from './SlideViewer/SlideViewerModals'
@@ -2373,6 +2375,8 @@ class SlideViewer extends React.Component<SlideViewerProps, SlideViewerState> {
         this.handleReportGeneration()
       } else if (event.code === 'KeyG') {
         this.handleGoTo()
+      } else if (event.code === 'KeyZ') {
+        this.handleViewReset()
       }
     }
   }
@@ -3453,6 +3457,19 @@ class SlideViewer extends React.Component<SlideViewerProps, SlideViewerState> {
   }
 
   /**
+   * Handler that resets the view such that the entire slide fits the viewport.
+   */
+  handleViewReset = (): void => {
+    logger.debug('reset view to entire slide')
+    const map = this.volumeViewer.getMap()
+    const view = map.getView()
+    view.fit(view.getProjection().getExtent(), {
+      size: map.getSize(),
+      duration: VIEW_RESET_ANIMATION_DURATION,
+    })
+  }
+
+  /**
    * Handler that will toggle the ROI removal tool, i.e., either activate
    * or de-activate it, depending on its current state.
    */
@@ -4413,33 +4430,36 @@ class SlideViewer extends React.Component<SlideViewerProps, SlideViewerState> {
         key="go-to-slide-position-button"
       />,
     ]
+    /**
+     * Tools that are also available when annotation tools are disabled, i.e.,
+     * in read-only deployments.
+     */
+    const viewTools = [
+      <Btn
+        tooltip="Fit entire slide [Alt+Z]"
+        icon={FaExpand}
+        onClick={this.handleViewReset}
+        key="reset-view-button"
+      />,
+    ]
 
-    let toolbar: React.ReactNode
-    let toolbarHeight = '0px'
+    const tools = this.props.enableAnnotationTools
+      ? [...annotationTools, ...controlTools, ...viewTools]
+      : viewTools
 
-    if (this.props.enableAnnotationTools) {
-      toolbar = (
-        <Row justify="start">
-          {annotationTools.map((item) => {
-            return (
-              <React.Fragment key={(item as React.ReactElement).key}>
-                {item}
-              </React.Fragment>
-            )
-          })}
-          {controlTools.map((item) => {
-            return (
-              <React.Fragment key={(item as React.ReactElement).key}>
-                {item}
-              </React.Fragment>
-            )
-          })}
-        </Row>
-      )
-      toolbarHeight = '50px'
-    }
+    const toolbar = (
+      <Row justify="start">
+        {tools.map((item) => {
+          return (
+            <React.Fragment key={(item as React.ReactElement).key}>
+              {item}
+            </React.Fragment>
+          )
+        })}
+      </Row>
+    )
 
-    return { toolbar, toolbarHeight }
+    return { toolbar, toolbarHeight: '50px' }
   }
 
   private readonly getCursor = (): string => {

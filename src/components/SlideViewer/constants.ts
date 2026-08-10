@@ -41,6 +41,12 @@ export const DEFAULT_ANNOTATION_COLOR_PALETTE = [
 ]
 
 /**
+ * Duration in milliseconds of the animation that fits the entire slide into
+ * the viewport
+ */
+export const VIEW_RESET_ANIMATION_DURATION = 500
+
+/**
  * Selection stroke color
  */
 export const SELECTION_STROKE_COLOR = [0, 153, 255]
