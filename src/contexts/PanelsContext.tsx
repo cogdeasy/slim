@@ -70,8 +70,13 @@ export const PanelsProvider: React.FC<PanelsProviderProps> = ({ children }) => {
   )
 }
 
+export interface PanelsCollapseState {
+  isLeftPanelCollapsed: boolean
+  isRightPanelCollapsed: boolean
+}
+
 interface PanelsCollapseObserverProps {
-  onCollapseChange: () => void
+  onCollapseChange: (state: PanelsCollapseState) => void
 }
 
 /**
@@ -85,12 +90,15 @@ export const PanelsCollapseObserver: React.FC<PanelsCollapseObserverProps> = ({
   const onCollapseChangeRef = React.useRef(onCollapseChange)
   onCollapseChangeRef.current = onCollapseChange
 
-  const _isLeftPanelCollapsed = panels?.isLeftPanelCollapsed
-  const _isRightPanelCollapsed = panels?.isRightPanelCollapsed
+  const isLeftPanelCollapsed = panels?.isLeftPanelCollapsed ?? false
+  const isRightPanelCollapsed = panels?.isRightPanelCollapsed ?? false
 
   React.useEffect(() => {
-    onCollapseChangeRef.current()
-  }, [])
+    onCollapseChangeRef.current({
+      isLeftPanelCollapsed,
+      isRightPanelCollapsed,
+    })
+  }, [isLeftPanelCollapsed, isRightPanelCollapsed])
 
   return null
 }

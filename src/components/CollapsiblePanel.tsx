@@ -39,11 +39,11 @@ const CollapsiblePanel: React.FC<CollapsiblePanelProps> = ({
 
   return (
     <Layout.Sider
-      width={PANEL_WIDTH}
-      collapsedWidth={COLLAPSED_PANEL_WIDTH}
-      collapsed={isCollapsed}
+      // The collapsed state is expressed via the width rather than via the
+      // "collapsed" property, because the latter switches contained menus to
+      // popup mode, whose invisible popups intercept pointer events.
+      width={isCollapsed ? COLLAPSED_PANEL_WIDTH : PANEL_WIDTH}
       trigger={null}
-      reverseArrow={side === 'right'}
       className={
         className !== undefined
           ? `slim-collapsible-panel ${className}`

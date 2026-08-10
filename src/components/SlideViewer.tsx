@@ -34,7 +34,10 @@ import {
   FaSave,
   FaTrash,
 } from 'react-icons/fa'
-import { PanelsCollapseObserver } from '../contexts/PanelsContext'
+import {
+  PanelsCollapseObserver,
+  type PanelsCollapseState,
+} from '../contexts/PanelsContext'
 import { SettingsRegistration } from '../contexts/SettingsContext'
 import { runValidations } from '../contexts/ValidationContext'
 import { StorageClasses } from '../data/uids'
@@ -1554,7 +1557,7 @@ class SlideViewer extends React.Component<SlideViewerProps, SlideViewerState> {
     }
   }
 
-  onPanelCollapseChange = (): void => {
+  onPanelCollapseChange = (_state: PanelsCollapseState): void => {
     // Give the panels time to complete their transition before updating the
     // size of the viewports
     setTimeout(() => {
