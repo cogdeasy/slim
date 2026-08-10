@@ -264,7 +264,7 @@ window.config = {
 
 Existing annotations remain viewable. The same flag also hides other controls
 bundled in that toolbar (for example **Go to**), not only draw/edit/save. The
-**Fit entire slide** control (`Alt+F`), which resets the view such that the
+**Fit entire slide** control (`Alt+Z`), which resets the view such that the
 whole slide fits the viewport, remains available in either case.
 
 ### Disable the worklist (`disableWorklist`)

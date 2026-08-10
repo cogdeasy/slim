@@ -2375,7 +2375,7 @@ class SlideViewer extends React.Component<SlideViewerProps, SlideViewerState> {
         this.handleReportGeneration()
       } else if (event.code === 'KeyG') {
         this.handleGoTo()
-      } else if (event.code === 'KeyF') {
+      } else if (event.code === 'KeyZ') {
         this.handleViewReset()
       }
     }
@@ -4436,7 +4436,7 @@ class SlideViewer extends React.Component<SlideViewerProps, SlideViewerState> {
      */
     const viewTools = [
       <Btn
-        tooltip="Fit entire slide [Alt+F]"
+        tooltip="Fit entire slide [Alt+Z]"
         icon={FaExpand}
         onClick={this.handleViewReset}
         key="reset-view-button"
