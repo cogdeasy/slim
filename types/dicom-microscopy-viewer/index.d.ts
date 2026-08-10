@@ -4,6 +4,7 @@ declare module 'dicom-microscopy-viewer' {
   import * as dwc from 'dicomweb-client'
   // skipcq: JS-C1003
   import * as dcmjs from 'dcmjs'
+  import type OlMap from 'ol/Map'
   import { CustomError } from '../../src/utils/CustomError'
 
   declare namespace viewer {
@@ -54,6 +55,17 @@ declare module 'dicom-microscopy-viewer' {
       render (options: object): void
       navigate (options: { level?: number, position?: number[] })
       cleanup (): void
+      /**
+       * The OpenLayers map owned by the viewer. Layers may be added to it in
+       * order to render content on top of the slide.
+       */
+      getMap (): OlMap
+      /**
+       * 3x3 affine matrix mapping OpenLayers projection coordinates (total
+       * pixel matrix coordinates of the base level, with flipped y axis) to
+       * slide coordinates in millimeter.
+       */
+      getAffine (): number[][]
       get numLevels (): number
       get frameOfReferenceUID (): string
       getPixelSpacing (level: number): number[]
@@ -281,6 +293,20 @@ declare module 'dicom-microscopy-viewer' {
       resize (): void
       get size (): number[]
     }
+  }
+
+  declare namespace utils {
+
+    export function applyTransform (options: {
+      coordinate: number[]
+      affine: number[][]
+    }): number[]
+
+    export function applyInverseTransform (options: {
+      coordinate: number[]
+      affine: number[][]
+    }): number[]
+
   }
 
   declare namespace scoord3d {
