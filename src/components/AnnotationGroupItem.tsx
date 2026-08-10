@@ -19,6 +19,10 @@ import * as dcmjs from 'dcmjs'
 import type * as dmv from 'dicom-microscopy-viewer'
 import React, { useCallback } from 'react'
 import { FaEye, FaEyeSlash } from 'react-icons/fa'
+import {
+  estimateAnnotationGroupBulkDataSize,
+  formatBulkDataSize,
+} from '../utils/bulkDataSize'
 import { rgbToHex } from '../utils/segmentColors'
 import ColorSlider from './ColorSlider'
 import Description from './Description'
@@ -423,6 +427,17 @@ class AnnotationGroupItem extends React.Component<
         value: this.props.metadata.AnnotationCoordinateType,
       },
     ]
+
+    const bulkDataSize = estimateAnnotationGroupBulkDataSize(
+      this.props.metadata,
+      this.props.annotationGroup.uid,
+    )
+    if (bulkDataSize !== null) {
+      attributes.push({
+        name: 'Download size',
+        value: formatBulkDataSize(bulkDataSize),
+      })
+    }
 
     const measurementsSequence = item.MeasurementsSequence ?? []
     const createMeasurementOption = (measurementItem: {

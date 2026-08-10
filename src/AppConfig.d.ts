@@ -107,4 +107,11 @@ export default interface AppConfig {
     enableInDevelopment?: boolean
   }
   enableMemoryMonitoring?: boolean
+  /**
+   * Maximum amount of bulk data in bytes that is retrieved automatically.
+   * Annotation groups whose estimated size exceeds this limit are not
+   * displayed unless the user explicitly opts in.
+   * Defaults to 262144000 (250 MB).
+   */
+  maxBulkDataSize?: number
 }
