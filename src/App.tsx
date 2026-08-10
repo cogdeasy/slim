@@ -195,28 +195,14 @@ class App extends React.Component<AppProps, AppState> {
   ): void => {
     if (error.status === 401) {
       this.signIn()
-    } else if (error.status === 403) {
-      // eslint-disable-next-line @typescript-eslint/no-floating-promises
-      NotificationMiddleware.onError(
-        NotificationMiddlewareContext.DICOMWEB,
-        new CustomError(
-          errorTypes.COMMUNICATION,
-          'User is not authorized to access DICOMweb resources.',
-        ),
-      )
     }
 
-    const logServerError = (): void => {
-      // eslint-disable-next-line @typescript-eslint/no-floating-promises
-      NotificationMiddleware.onError(
-        NotificationMiddlewareContext.DICOMWEB,
-        new CustomError(
-          errorTypes.COMMUNICATION,
-          'An unexpected server error occured.',
-        ),
-      )
-    }
-
+    /**
+     * Requests may be retried, so failures are reported to the user by
+     * DicomWebManager once they turn out to be final. Here only the
+     * server-specific messages that were configured for a status code are
+     * applied.
+     */
     if (serverSettings.errorMessages !== undefined) {
       serverSettings.errorMessages.forEach((setting: ErrorMessageSettings) => {
         if (error.status === setting.status) {
@@ -226,12 +212,8 @@ class App extends React.Component<AppProps, AppState> {
               message: setting.message,
             },
           })
-        } else if (error.status === 500) {
-          logServerError()
         }
       })
-    } else if (error.status === 500) {
-      logServerError()
     }
   }
 
