@@ -3,7 +3,7 @@ window.config = {
   servers: [
     {
       id: 'demo',
-      url: 'https://idc-external-006.uc.r.appspot.com/dcm4chee-arc/aets/DCM4CHEE/rs',
+      url: 'https://proxy.imaging.datacommons.cancer.gov/current/viewer-only-no-downloads-see-tinyurl-dot-com-slash-3j3d9jyp/dicomWeb',
       write: false
     }
   ],

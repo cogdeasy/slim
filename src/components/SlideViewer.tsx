@@ -294,7 +294,7 @@ class SlideViewer extends React.Component<SlideViewerProps, SlideViewerState> {
       loadingFrames: new Set(),
       isICCProfilesEnabled: true,
       isPaletteDisplayGammaCorrectionEnabled:
-        volumeViewer.getPaletteDisplayGammaCorrectionEnabled(),
+        volumeViewer.getPaletteDisplayGammaCorrectionEnabled?.() ?? false,
       isSegmentationInterpolationEnabled: false,
       isParametricMapInterpolationEnabled: true,
       customizedSegmentColors: {},
@@ -406,7 +406,7 @@ class SlideViewer extends React.Component<SlideViewerProps, SlideViewerState> {
       })
       this.volumeViewer = volumeViewer
       this.labelViewer = labelViewer
-      this.volumeViewer.setPaletteDisplayGammaCorrectionEnabled(
+      this.volumeViewer.setPaletteDisplayGammaCorrectionEnabled?.(
         this.state.isPaletteDisplayGammaCorrectionEnabled,
       )
 
@@ -3068,7 +3068,8 @@ class SlideViewer extends React.Component<SlideViewerProps, SlideViewerState> {
       stylePayload.paletteColorLookupTable =
         SlideViewer.createSegmentPaletteColorLookupTable(
           styleOptions.color,
-          this.volumeViewer.getPaletteDisplayGammaCorrectionEnabled(),
+          this.volumeViewer.getPaletteDisplayGammaCorrectionEnabled?.() ??
+            false,
         )
     }
 
@@ -3637,7 +3638,7 @@ class SlideViewer extends React.Component<SlideViewerProps, SlideViewerState> {
    */
   handlePaletteDisplayGammaCorrectionToggle = (checked: boolean): void => {
     this.setState({ isPaletteDisplayGammaCorrectionEnabled: checked })
-    this.volumeViewer.setPaletteDisplayGammaCorrectionEnabled(checked)
+    this.volumeViewer.setPaletteDisplayGammaCorrectionEnabled?.(checked)
   }
 
   /**
@@ -4146,7 +4147,8 @@ class SlideViewer extends React.Component<SlideViewerProps, SlideViewerState> {
               defaultSegmentStyles[segment.uid].color !== undefined
                 ? SlideViewer.createSegmentPaletteColorLookupTable(
                     defaultSegmentStyles[segment.uid].color as number[],
-                    this.volumeViewer.getPaletteDisplayGammaCorrectionEnabled(),
+                    this.volumeViewer.getPaletteDisplayGammaCorrectionEnabled?.() ??
+                      false,
                   )
                 : undefined,
           })
@@ -4630,6 +4632,11 @@ class SlideViewer extends React.Component<SlideViewerProps, SlideViewerState> {
 
   private readonly getPaletteDisplayGammaCorrectionMenu =
     (): React.ReactNode => {
+      if (
+        this.volumeViewer.setPaletteDisplayGammaCorrectionEnabled === undefined
+      ) {
+        return null
+      }
       return (
         <div
           style={{
