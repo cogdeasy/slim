@@ -6,12 +6,14 @@ import { Route, Routes, useLocation, useParams } from 'react-router-dom'
 
 import type { AnnotationSettings } from '../AppConfig'
 import type { User } from '../auth'
+import { PanelsProvider, usePanels } from '../contexts/PanelsContext'
 import type DicomWebManager from '../DicomWebManager'
 import type { Slide } from '../data/slides'
 import { StorageClasses } from '../data/uids'
 import { useSlides } from '../hooks/useSlides'
 import { type RouteComponentProps, withRouter } from '../utils/router'
 import ClinicalTrial from './ClinicalTrial'
+import CollapsiblePanel from './CollapsiblePanel'
 import Patient from './Patient'
 import SlideList from './SlideList'
 import SlideViewer from './SlideViewer'
@@ -208,6 +210,7 @@ interface ViewerProps extends RouteComponentProps {
 function Viewer(props: ViewerProps): JSX.Element | null {
   const { clients, studyInstanceUID, location, navigate } = props
   const { slides, isLoading } = useSlides({ clients, studyInstanceUID })
+  const panels = usePanels()
 
   const handleSeriesSelection = ({
     seriesInstanceUID,
@@ -280,20 +283,19 @@ function Viewer(props: ViewerProps): JSX.Element | null {
 
   return (
     <Layout style={{ height: '100%' }} hasSider>
-      <Layout.Sider
-        width={300}
+      <CollapsiblePanel
+        side="left"
+        label="case panel"
+        isCollapsed={panels?.isLeftPanelCollapsed ?? false}
+        onToggle={panels?.toggleLeftPanel ?? (() => {})}
         style={{
-          height: '100%',
           borderRight: 'solid',
           borderRightWidth: 0.25,
-          overflow: 'hidden',
-          background: 'none',
         }}
       >
         <Menu
           mode="inline"
           defaultOpenKeys={['patient', 'study', 'clinical-trial', 'slides']}
-          style={{ height: '100%' }}
           inlineIndent={14}
         >
           <Menu.SubMenu key="patient" title="Patient">
@@ -312,7 +314,7 @@ function Viewer(props: ViewerProps): JSX.Element | null {
             />
           </Menu.SubMenu>
         </Menu>
-      </Layout.Sider>
+      </CollapsiblePanel>
 
       <Routes>
         <Route
@@ -334,4 +336,12 @@ function Viewer(props: ViewerProps): JSX.Element | null {
   )
 }
 
-export default withRouter(Viewer)
+function ViewerWithPanels(props: ViewerProps): JSX.Element {
+  return (
+    <PanelsProvider>
+      <Viewer {...props} />
+    </PanelsProvider>
+  )
+}
+
+export default withRouter(ViewerWithPanels)

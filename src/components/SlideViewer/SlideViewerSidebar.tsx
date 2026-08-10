@@ -1,12 +1,14 @@
-import { Layout, Menu } from 'antd'
+import { Menu } from 'antd'
 // skipcq: JS-C1003
 import type * as dmv from 'dicom-microscopy-viewer'
 import type React from 'react'
 import { useCallback } from 'react'
 
 import './SlideViewerSidebar.css'
+import { usePanels } from '../../contexts/PanelsContext'
 import type { AnnotationCategoryAndType } from '../../types/annotations'
 import AnnotationCategoryList from '../AnnotationCategoryList'
+import CollapsiblePanel from '../CollapsiblePanel'
 import type { StyleOptions } from './types'
 
 interface SlideViewerSidebarProps {
@@ -61,6 +63,8 @@ const SlideViewerSidebar: React.FC<SlideViewerSidebarProps> = ({
   onRoiStyleChange,
   defaultAnnotationStyles,
 }) => {
+  const panels = usePanels()
+
   const handleMenuOpenChange = useCallback((): void => {
     // Give menu item time to render before updating viewer size
     const resizeViewer = (): void => {
@@ -72,21 +76,20 @@ const SlideViewerSidebar: React.FC<SlideViewerSidebarProps> = ({
   }, [labelViewer])
 
   return (
-    <Layout.Sider
-      width={300}
-      reverseArrow
+    <CollapsiblePanel
+      side="right"
+      label="slide panel"
+      isCollapsed={panels?.isRightPanelCollapsed ?? false}
+      onToggle={panels?.toggleRightPanel ?? (() => {})}
       className="slide-viewer-sidebar"
       style={{
         borderLeft: 'solid',
         borderLeftWidth: 0.25,
-        overflow: 'hidden',
-        background: 'none',
       }}
     >
       <Menu
         mode="inline"
         defaultOpenKeys={openSubMenuItems}
-        style={{ height: '100%' }}
         inlineIndent={14}
         forceSubMenuRender
         onOpenChange={handleMenuOpenChange}
@@ -123,7 +126,7 @@ const SlideViewerSidebar: React.FC<SlideViewerSidebarProps> = ({
         {segmentationMenu}
         {parametricMapMenu}
       </Menu>
-    </Layout.Sider>
+    </CollapsiblePanel>
   )
 }
 

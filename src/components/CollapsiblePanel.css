@@ -1,0 +1,23 @@
+.slim-collapsible-panel {
+  height: 100%;
+  overflow: hidden;
+  background: none;
+}
+
+.slim-collapsible-panel-header {
+  display: flex;
+  align-items: center;
+  height: 32px;
+  padding: 0 4px;
+}
+
+.slim-collapsible-panel-header .anticon,
+.slim-collapsible-panel-header svg {
+  vertical-align: middle;
+}
+
+.slim-collapsible-panel-body {
+  height: calc(100% - 32px);
+  overflow-x: hidden;
+  overflow-y: auto;
+}
