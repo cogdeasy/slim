@@ -252,8 +252,8 @@ not all restyle immediately.
 
 ### Disable annotation tools (`disableAnnotationTools`)
 
-Set `disableAnnotationTools: true` to hide the slide toolbar that contains
-annotation creation / editing controls (default is `false`, tools enabled):
+Set `disableAnnotationTools: true` to hide the annotation creation / editing
+controls of the slide toolbar (default is `false`, tools enabled):
 
 ```js
 window.config = {
@@ -263,7 +263,9 @@ window.config = {
 ```
 
 Existing annotations remain viewable. The same flag also hides other controls
-bundled in that toolbar (for example **Go to**), not only draw/edit/save.
+bundled in that toolbar (for example **Go to**), not only draw/edit/save. The
+**Fit entire slide** control (`Alt+F`), which resets the view such that the
+whole slide fits the viewport, remains available in either case.
 
 ### Disable the worklist (`disableWorklist`)
 
