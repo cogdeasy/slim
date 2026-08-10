@@ -288,6 +288,24 @@ Once the app has been built, the content of the `build` folder can be served dir
 
 To learn how to deploy Slim as a Google Firebase web app, see [this tutorial](https://tinyurl.com/idc-slim-gcp).
 
+### GitHub Pages
+
+`pnpm run predeploy` builds the demo configuration for a site served under the `/slim/` path prefix, which is where GitHub Pages serves a repository named `slim`. A fork keeps that name by default and needs no changes. A fork under a *different* repository name is served from `https://<owner>.github.io/<repo>/` and must override the asset prefix, the router basename, and the viewer library path, otherwise assets resolve to `/slim/...` and 404:
+
+```bash
+PUBLIC_URL=/<repo>/ pnpm run predeploy   # asset prefix
+# and in the deployed public/config/demo.js, set
+#   path: '/<repo>'                      # router basename
+#   publicLibPath: '/<repo>/static/js/'  # dicom-microscopy-viewer web worker
+```
+
+`publicLibPath` is needed because `dicom-microscopy-viewer` resolves its web worker
+relative to `path`, which drops the last segment when it has no trailing slash: under
+`/slim` it would request `/static/js/dataLoader.worker.min.js` and 404, leaving the
+viewer with a blank canvas.
+
+Note that GitHub disables Actions on new forks, so `deploy-to-github-pages.yml` will not run until workflows are enabled in the fork's Actions tab and a Pages site is configured under Settings → Pages.
+
 ### Local
 
 The repository provides a [Docker Compose](https://docs.docker.com/compose/compose-file/) file to deploy a static web server and a [dcm4chee-arc-light](https://github.com/dcm4che/dcm4chee-arc-light) DICOMweb server on localhost for local app development and testing:

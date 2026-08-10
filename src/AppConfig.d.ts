@@ -87,6 +87,14 @@ export default interface AppConfig {
    */
   servers: ServerSettings[]
   path: string
+  /**
+   * Directory the dicom-microscopy-viewer bundle is served from, read by the
+   * library itself to locate its web worker. It defaults to "./static/js/"
+   * resolved against "path", which drops the last segment when "path" has no
+   * trailing slash — so any deployment under a path prefix must set this
+   * explicitly or the worker 404s and slides render a blank canvas.
+   */
+  publicLibPath?: string
   annotations: AnnotationSettings[]
   organization?: string
   gcpBaseUrl?: string
