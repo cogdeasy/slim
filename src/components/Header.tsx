@@ -272,7 +272,19 @@ class Header extends React.Component<HeaderProps, HeaderState> {
     }): void => {
       this.setState((state) => ({
         ...state,
-        errorObj: [...state.errorObj, { ...error, source, userFacingError }],
+        errorObj: [
+          ...state.errorObj,
+          /**
+           * The message of a native error is not enumerable and would be lost
+           * when the error is copied, so it is carried over explicitly.
+           */
+          {
+            ...error,
+            message: error.message ?? String(error),
+            source,
+            userFacingError,
+          },
+        ],
         errorCategory: [...state.errorCategory, category],
       }))
     }

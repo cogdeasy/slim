@@ -2,6 +2,7 @@ import { Collapse, Result, Typography } from 'antd'
 import { Link } from 'react-router-dom'
 import {
   describeError,
+  ErrorImpact,
   getImpactStatement,
   type UserFacingError,
 } from '../utils/userFacingErrors'
@@ -19,7 +20,12 @@ export const ViewerErrorState = ({
   error?: unknown
   userFacingError?: UserFacingError
 }): JSX.Element => {
-  const description = userFacingError ?? describeError(error)
+  const described = userFacingError ?? describeError(error)
+  /**
+   * This state replaces the entire viewport, so whatever the failure means
+   * elsewhere, here nothing of the slide is displayed.
+   */
+  const description = { ...described, impact: ErrorImpact.BLOCKED }
   const impactStatement = getImpactStatement(description.impact)
   const detail =
     error instanceof Error ? (error.stack ?? error.message) : undefined

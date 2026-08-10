@@ -174,9 +174,9 @@ const CONTENT_PATTERNS: MessagePattern[] = [
   {
     pattern: /decod|codec|transfer syntax|jpeg|jp2|jls|pixel data/i,
     describe: () => ({
-      title: 'Part of the image could not be decoded',
+      title: 'Image data could not be read',
       description:
-        'Some image tiles are stored in a format that could not be decoded, so parts of the slide may be missing or blank.',
+        'Some of the data of this slide is stored in a way that the viewer could not decode, so it is missing from the display.',
       impact: ErrorImpact.DEGRADED,
       isTransient: false,
     }),
