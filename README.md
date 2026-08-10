@@ -256,6 +256,19 @@ window.config = {
 
 When enabled, the memory footer appears at the bottom of all pages and monitors memory usage every 5 seconds.
 
+### Bulk data size limit
+
+The amount of bulk data that is retrieved automatically for an annotation group can be limited:
+
+```js
+window.config = {
+  // ... other config options ...
+  maxBulkDataSize: 262144000, // 250 MB (default)
+}
+```
+
+Annotation groups whose estimated download size exceeds the limit are not loaded automatically; the user is informed about the size and can choose to load them anyway. See [docs/CONFIGURATION.md](docs/CONFIGURATION.md#bulk-data-size-limit-maxbulkdatasize).
+
 ### Additional configuration topics
 
 The following topics are documented in [docs/CONFIGURATION.md](docs/CONFIGURATION.md):
@@ -268,6 +281,7 @@ The following topics are documented in [docs/CONFIGURATION.md](docs/CONFIGURATIO
 | Annotation / finding colors | `annotations[].style` |
 | Read-only annotation UI | `disableAnnotationTools` |
 | Hide study worklist | `disableWorklist` |
+| Bulk data size limit | `maxBulkDataSize` |
 | Local Orthanc / CORS troubleshooting | see [Local deployment tips](docs/CONFIGURATION.md#local-deployment-tips) |
 
 ## Deployment

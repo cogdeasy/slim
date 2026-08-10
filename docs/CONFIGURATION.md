@@ -16,6 +16,7 @@ Example configs live in [`public/config/`](../public/config/).
 - [Runtime server selection (header button)](#runtime-server-selection-header-button)
 - [Secondary GCP data source (`gcp` query parameter)](#secondary-gcp-data-source-gcp-query-parameter)
 - [Annotation colors](#annotation-colors)
+- [Bulk data size limit (`maxBulkDataSize`)](#bulk-data-size-limit-maxbulkdatasize)
 - [Read-only mode and worklist](#read-only-mode-and-worklist)
 - [Local deployment tips](#local-deployment-tips)
 - [Related documentation](#related-documentation)
@@ -247,6 +248,60 @@ not all restyle immediately.
   `[0, 153, 255]` (alpha 1) and is **not** configurable via `window.config`.
 - **Bulk ANN hover highlight** uses dmv’s `highlightColor` (default
   `[140, 184, 198]`), which is separate from Slim’s ROI selection style.
+
+## Bulk data size limit (`maxBulkDataSize`)
+
+Microscopy Bulk Simple Annotations (ANN) instances can be very large — the
+Pan-Cancer-Nuclei-Seg annotations in IDC contain a single group of 2.45 million
+nucleus polygons that amounts to roughly 700 MB of bulk data. Retrieving such a
+group takes minutes and can exhaust the memory of the browser tab
+([issue #229](https://github.com/ImagingDataCommons/slim/issues/229),
+[issue #357](https://github.com/ImagingDataCommons/slim/issues/357)).
+
+`maxBulkDataSize` caps the amount of bulk data (in bytes) that Slim retrieves
+without asking:
+
+```js
+window.config = {
+  // ...
+  maxBulkDataSize: 262144000, // 250 MB (default)
+}
+```
+
+Behavior:
+
+- The estimated download size of every annotation group is shown as
+  **Download size** in the annotation group panel, so the cost of toggling a
+  group is visible before clicking
+  ([issue #235](https://github.com/ImagingDataCommons/slim/issues/235)).
+- Enabling a group whose estimate exceeds the limit opens a dialog that states
+  the size, the configured limit and the current memory usage reported by the
+  [memory monitor](./MEMORY_MONITORING.md), and offers **Load anyway** as an
+  explicit opt-in. Nothing is truncated: the group is either fully loaded or
+  not loaded at all.
+- Groups over the limit are skipped when annotations are shown automatically
+  (for example when a `/series/<ANN series>` route is opened); a warning names
+  the group and its size. Groups below the limit behave exactly as before.
+- Setting `maxBulkDataSize: 0` prompts for every annotation group.
+
+### How the size is determined
+
+DICOMweb does not expose the size of a bulk data item: the metadata resource
+only contains `BulkDataURI` references, servers need not support `HEAD` on
+those URIs, and WADO-RS bulk data responses are multipart and typically chunked
+so that neither `Content-Length` nor a ranged `GET` reveals the payload size.
+The IDC proxy, for instance, answers `HEAD` with `404` and returns no
+`Content-Length` on `GET`. A probe request is therefore not reliable, and Slim
+instead derives the size from the annotation group metadata
+(`src/utils/bulkDataSize.ts`): number of annotations × points per annotation ×
+coordinate dimensions × bytes per coordinate value, plus the point index list
+and any measurement values that are referenced as bulk data.
+
+The number of points per annotation follows from the graphic type for POINT,
+RECTANGLE, ELLIPSE and ELLIPSOID. For POLYGON and POLYLINE it is not encoded in
+the metadata, so an average of 35 points per annotation is assumed (measured on
+the Pan-Cancer-Nuclei-Seg annotations); those estimates are displayed with a
+`~` prefix.
 
 ## Read-only mode and worklist
 

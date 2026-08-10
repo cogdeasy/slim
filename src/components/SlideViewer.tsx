@@ -7,6 +7,7 @@ import {
   InputNumber,
   Layout,
   Menu,
+  Modal,
   message,
   Row,
   Select,
@@ -39,6 +40,7 @@ import { runValidations } from '../contexts/ValidationContext'
 import { StorageClasses } from '../data/uids'
 import { ActiveSeriesService } from '../services/ActiveSeriesService'
 import DicomMetadataStore from '../services/DICOMMetadataStore'
+import { memoryMonitor } from '../services/MemoryMonitor'
 import NotificationMiddleware, {
   NotificationMiddlewareContext,
 } from '../services/NotificationMiddleware'
@@ -47,6 +49,12 @@ import type {
   AnnotationCategoryAndType,
   AnnotationSettings,
 } from '../types/annotations'
+import type { BulkDataSizeEstimate } from '../utils/bulkDataSize'
+import {
+  estimateAnnotationGroupBulkDataSize,
+  formatBulkDataSize,
+  getMaxBulkDataSize,
+} from '../utils/bulkDataSize'
 import { CustomError, errorTypes } from '../utils/CustomError'
 import {
   applyDistinctFractionalSegmentPalettes,
@@ -772,6 +780,25 @@ class SlideViewer extends React.Component<SlideViewerProps, SlideViewerState> {
        */
       const shownAnnotationGroupUIDs: string[] = []
       matchingAnnotationGroups.forEach((annotationGroup) => {
+        const estimate = this.getAnnotationGroupBulkDataSize(
+          annotationGroup.uid,
+        )
+        if (this.exceedsBulkDataSizeLimit(estimate)) {
+          logger.warn(
+            `skip auto-show of annotation group "${annotationGroup.uid}": ` +
+              `${formatBulkDataSize(estimate)} of bulk data exceeds the ` +
+              `configured limit of ` +
+              `${memoryMonitor.formatBytes(getMaxBulkDataSize())}`,
+          )
+          // eslint-disable-next-line @typescript-eslint/no-floating-promises
+          message.warning(
+            `Annotation group "${annotationGroup.label}" was not loaded ` +
+              `automatically, because it would require retrieval of ` +
+              `${formatBulkDataSize(estimate)} of bulk data. Enable it in the ` +
+              'annotation group panel to load it anyway.',
+          )
+          return
+        }
         try {
           this.volumeViewer.showAnnotationGroup(annotationGroup.uid)
           shownAnnotationGroupUIDs.push(annotationGroup.uid)
@@ -2865,6 +2892,103 @@ class SlideViewer extends React.Component<SlideViewerProps, SlideViewerState> {
   }
 
   /**
+   * Estimate the amount of bulk data that has to be retrieved to display an
+   * annotation group.
+   */
+  private readonly getAnnotationGroupBulkDataSize = (
+    annotationGroupUID: string,
+  ): BulkDataSizeEstimate | null => {
+    try {
+      const metadata =
+        this.volumeViewer.getAnnotationGroupMetadata(annotationGroupUID)
+      return estimateAnnotationGroupBulkDataSize(metadata, annotationGroupUID)
+    } catch (error) {
+      logger.error(
+        `failed to estimate bulk data size of annotation group ` +
+          `"${annotationGroupUID}":`,
+        error,
+      )
+      return null
+    }
+  }
+
+  /**
+   * Determine whether displaying an annotation group would require retrieval
+   * of more bulk data than the configured limit allows.
+   */
+  private readonly exceedsBulkDataSizeLimit = (
+    estimate: BulkDataSizeEstimate | null,
+  ): estimate is BulkDataSizeEstimate => {
+    return estimate !== null && estimate.bytes > getMaxBulkDataSize()
+  }
+
+  /**
+   * Display an annotation group, which retrieves its bulk data.
+   */
+  private readonly showAnnotationGroup = (annotationGroupUID: string): void => {
+    logger.log(`show annotation group ${annotationGroupUID}`)
+    try {
+      this.volumeViewer.showAnnotationGroup(annotationGroupUID)
+    } catch (error) {
+      // eslint-disable-next-line @typescript-eslint/no-floating-promises
+      NotificationMiddleware.onError(
+        NotificationMiddlewareContext.SLIM,
+        new CustomError(
+          errorTypes.VISUALIZATION,
+          'Failed to show annotation group.',
+        ),
+      )
+      throw error
+    }
+    this.setState((state) => {
+      const visibleAnnotationGroupUIDs = new Set(
+        state.visibleAnnotationGroupUIDs,
+      )
+      visibleAnnotationGroupUIDs.add(annotationGroupUID)
+      return { visibleAnnotationGroupUIDs }
+    })
+  }
+
+  /**
+   * Ask the user whether an annotation group that exceeds the configured bulk
+   * data size limit should be retrieved regardless.
+   */
+  private readonly confirmLargeAnnotationGroup = (
+    annotationGroupUID: string,
+    estimate: BulkDataSizeEstimate,
+  ): void => {
+    logger.warn(
+      `annotation group "${annotationGroupUID}" exceeds the configured ` +
+        `bulk data size limit of ` +
+        `${memoryMonitor.formatBytes(getMaxBulkDataSize())}: ` +
+        `${formatBulkDataSize(estimate)}`,
+    )
+    Modal.confirm({
+      title: 'Annotation group is too large',
+      okText: 'Load anyway',
+      cancelText: 'Cancel',
+      width: 480,
+      content: (
+        <>
+          <p>
+            Displaying this annotation group requires retrieval of{' '}
+            <b>{formatBulkDataSize(estimate)}</b> of bulk data, which exceeds
+            the configured limit of{' '}
+            {memoryMonitor.formatBytes(getMaxBulkDataSize())}. Retrieval may
+            take several minutes and may exhaust the memory of the browser tab.
+          </p>
+          <p>
+            {memoryMonitor.getStatusMessage(memoryMonitor.getLastMeasurement())}
+          </p>
+        </>
+      ),
+      onOk: () => {
+        this.showAnnotationGroup(annotationGroupUID)
+      },
+    })
+  }
+
+  /**
    * Handle toggling of annotation group visibility, i.e., whether a given
    * annotation group should be either displayed or hidden by the viewer.
    */
@@ -2888,27 +3012,12 @@ class SlideViewer extends React.Component<SlideViewerProps, SlideViewerState> {
 
     logger.log(`change visibility of annotation group ${annotationGroupUID}`)
     if (isVisible) {
-      logger.log(`show annotation group ${annotationGroupUID}`)
-      try {
-        this.volumeViewer.showAnnotationGroup(annotationGroupUID)
-      } catch (error) {
-        // eslint-disable-next-line @typescript-eslint/no-floating-promises
-        NotificationMiddleware.onError(
-          NotificationMiddlewareContext.SLIM,
-          new CustomError(
-            errorTypes.VISUALIZATION,
-            'Failed to show annotation group.',
-          ),
-        )
-        throw error
+      const estimate = this.getAnnotationGroupBulkDataSize(annotationGroupUID)
+      if (this.exceedsBulkDataSizeLimit(estimate)) {
+        this.confirmLargeAnnotationGroup(annotationGroupUID, estimate)
+        return
       }
-      this.setState((state) => {
-        const visibleAnnotationGroupUIDs = new Set(
-          state.visibleAnnotationGroupUIDs,
-        )
-        visibleAnnotationGroupUIDs.add(annotationGroupUID)
-        return { visibleAnnotationGroupUIDs }
-      })
+      this.showAnnotationGroup(annotationGroupUID)
     } else {
       logger.log(`hide annotation group ${annotationGroupUID}`)
       this.volumeViewer.hideAnnotationGroup(annotationGroupUID)
