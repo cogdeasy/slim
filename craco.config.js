@@ -7,7 +7,8 @@ const CopyWebpackPlugin = require('copy-webpack-plugin')
 const BRAND = {
   orange: '#f36633',
   orangeTint: '#fdefe8',
-  orangeMuted: '#f7a982'
+  orangeMuted: '#f7a982',
+  headerBackground: '#ffffff'
 }
 
 /**
@@ -45,7 +46,7 @@ module.exports = {
         lessLoaderOptions: {
           lessOptions: {
             modifyVars: {
-              '@layout-header-background': BRAND.orange,
+              '@layout-header-background': BRAND.headerBackground,
               '@primary-color': BRAND.orange,
               '@collapse-header-bg': BRAND.orangeTint,
               '@processing-color': BRAND.orangeMuted,

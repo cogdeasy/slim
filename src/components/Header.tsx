@@ -758,7 +758,7 @@ class Header extends React.Component<HeaderProps, HeaderState> {
       )
     }
 
-    const logoUrl = `${process.env.PUBLIC_URL}/gsk-wordmark-white.svg`
+    const logoUrl = `${process.env.PUBLIC_URL}/gsk-logo.svg`
 
     const selectedServerUrl =
       this.props.clients?.default?.baseURL ??
@@ -794,7 +794,7 @@ class Header extends React.Component<HeaderProps, HeaderState> {
                 <img
                   src={logoUrl}
                   alt="GSK"
-                  style={{ height: '22px', marginRight: '12px' }}
+                  style={{ height: '26px', marginRight: '12px' }}
                 />
               </Space>
             </Col>
