@@ -3,11 +3,11 @@ const path = require('path')
 const CracoLessPlugin = require('craco-less')
 const CopyWebpackPlugin = require('copy-webpack-plugin')
 
-/** Philips brand palette. */
+/** GSK brand palette. */
 const BRAND = {
-  blue: '#0b5ed7',
-  blueTint: '#e8f0fd',
-  blueMuted: '#7ba4e8'
+  orange: '#f36633',
+  orangeTint: '#fdefe8',
+  orangeMuted: '#f7a982'
 }
 
 /**
@@ -45,10 +45,10 @@ module.exports = {
         lessLoaderOptions: {
           lessOptions: {
             modifyVars: {
-              '@layout-header-background': BRAND.blue,
-              '@primary-color': BRAND.blue,
-              '@collapse-header-bg': BRAND.blueTint,
-              '@processing-color': BRAND.blueMuted,
+              '@layout-header-background': BRAND.orange,
+              '@primary-color': BRAND.orange,
+              '@collapse-header-bg': BRAND.orangeTint,
+              '@processing-color': BRAND.orangeMuted,
               '@success-color': '#3f9c35',
               '@warning-color': '#eeaf30',
               '@error-color': '#96172e',

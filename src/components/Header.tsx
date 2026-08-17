@@ -365,8 +365,8 @@ class Header extends React.Component<HeaderProps, HeaderState> {
       content: (
         <div style={aboutModalStyles.container}>
           <img
-            src={`${process.env.PUBLIC_URL}/philips-shield.svg`}
-            alt="Philips"
+            src={`${process.env.PUBLIC_URL}/gsk-logo.svg`}
+            alt="GSK"
             style={aboutModalStyles.brandMark}
           />
           <Typography.Title level={3} style={aboutModalStyles.title}>
@@ -758,7 +758,7 @@ class Header extends React.Component<HeaderProps, HeaderState> {
       )
     }
 
-    const logoUrl = `${process.env.PUBLIC_URL}/philips-wordmark-white.svg`
+    const logoUrl = `${process.env.PUBLIC_URL}/gsk-wordmark-white.svg`
 
     const selectedServerUrl =
       this.props.clients?.default?.baseURL ??
@@ -793,7 +793,7 @@ class Header extends React.Component<HeaderProps, HeaderState> {
               <Space align="center" direction="horizontal">
                 <img
                   src={logoUrl}
-                  alt="Philips"
+                  alt="GSK"
                   style={{ height: '22px', marginRight: '12px' }}
                 />
               </Space>
